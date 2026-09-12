@@ -44,7 +44,7 @@ const emit = defineEmits<{
   <Transition name="yy-fade">
     <div
       v-show="visible"
-      class="absolute inset-0 z-30 flex flex-col justify-between"
+      class="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between"
     >
       <!-- 顶栏 -->
       <div

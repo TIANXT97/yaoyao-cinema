@@ -157,7 +157,6 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
   function onTouchStart(event: TouchEvent): void {
     const touch = event.touches[0]
     if (!touch) return
-    options.onActivity?.()
     startX = touch.clientX
     startY = touch.clientY
     zone = getZone(touch.clientX)
@@ -255,6 +254,9 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
     if (singleTapTimer) clearTimeout(singleTapTimer)
     singleTapTimer = setTimeout(() => {
       singleTapTimer = null
+      // 单击：仅切换控件显隐。
+      // 不要调 onActivity()！它会强制 setControlsVisible(true) 撤销刚刚的 toggle。
+      // CustomPlayer 的 watch(showControls) 会自动 scheduleHide / clearHideTimer。
       options.toggleControls()
     }, DOUBLE_TAP_MS)
   }
