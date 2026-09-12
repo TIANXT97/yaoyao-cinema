@@ -1,0 +1,28 @@
+{
+  "name": "yaoyao-cinema",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "夭夭影社 · 私家极简全平台原画影院（Vue 3 PWA + FastAPI + Capacitor Android）",
+  "scripts": {
+    "web:build": "npm --prefix frontend run build",
+    "cap:sync": "cap sync android",
+    "cap:copy": "cap copy android",
+    "cap:open": "cap open android",
+    "android:sync": "npm run web:build && cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/keyboard": "^7.0.6",
+    "@capacitor/screen-orientation": "^7.0.4",
+    "@capacitor/status-bar": "^7.0.6"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.6.9",
+    "@types/node": "^22.20.2",
+    "typescript": "~5.7.3"
+  }
+}

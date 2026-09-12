@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 东方纯白极简通透 · 设计 Token（对齐 frontend/src/style.css） -->
+    <color name="colorPrimary">#FFFFFF</color>
+    <color name="colorPrimaryDark">#FFFFFF</color>
+    <color name="colorAccent">#D4A574</color>
+
+    <color name="yy_paper">#FFFFFF</color>
+    <color name="yy_paper_soft">#FAFAFA</color>
+    <color name="yy_ink">#1A1A1A</color>
+    <color name="yy_accent">#D4A574</color>
+    <color name="yy_line">#EBEBEB</color>
+    <color name="yy_player_bg">#000000</color>
+</resources>

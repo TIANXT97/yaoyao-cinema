@@ -1,21 +1,22 @@
 # 夭夭影社 · docker-compose（ARCHITECTURE.md 第 5 章「可选容器化部署」）
 #
-# 单容器极速部署：零外部依赖，热挂载宿主媒体库与运行数据。
-# 宿主路径请按 NAS 实际位置调整（README 约定为 /vol1/1000/私人影库）。
+# 单容器一体化全栈：前端 dist 已打入镜像，FastAPI 同源伺服 API + Web/PWA。
+# 热挂载宿主媒体库与运行数据（SQLite WAL 需可写）。
 #
-# 启动：docker compose up -d
-# 日志：docker compose logs -f
-# 停止：docker compose down
+# 宿主媒体路径请按 NAS 实际位置调整（默认 /vol1/1000/私人影库）。
+#
+# 构建并启动：docker compose up -d --build
+# 查看日志：  docker compose logs -f
+# 停止：      docker compose down
 
 services:
   yaoyao-cinema:
-    image: python:3.11-slim
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: yaoyao-cinema:latest
     container_name: yaoyao-cinema
     restart: unless-stopped
-    working_dir: /app
-    command: >
-      sh -c "pip install --no-cache-dir -r /app/server/requirements.txt &&
-             uvicorn server.main:app --host 0.0.0.0 --port 9900"
     ports:
       - "9900:9900"
     environment:
@@ -24,11 +25,10 @@ services:
       YAOYAO_DATA_DIR: /app/data
       YAOYAO_DB_PATH: /app/data/yaoyao.db
       YAOYAO_MEDIA_ROOT: /media
+      YAOYAO_FRONTEND_DIST: /app/frontend/dist
       YAOYAO_HOST: 0.0.0.0
       YAOYAO_PORT: "9900"
     volumes:
-      # 代码（只读即可）
-      - ./:/app:ro
       # 运行数据（SQLite WAL 需可写）
       - ./data:/app/data
       # 宿主媒体库（视频 / 封面 / NFO）；请替换为实际路径

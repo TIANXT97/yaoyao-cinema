@@ -16,6 +16,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config
 from .api.router import api_router
@@ -26,6 +27,22 @@ from .utils.logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 VERSION = "1.0.0"
+
+
+class SPAStaticFiles(StaticFiles):
+    """静态资源伺服 + SPA history 路由回退。
+
+    Vue Router 使用 history 模式，刷新 ``/library`` 等前端路由时需回退到
+    ``index.html``，否则会 404。``/api/*`` 的真实 404 不受影响。
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404 and not path.startswith("api/"):
+                return await super().get_response("index.html", scope)
+            raise
 
 
 @asynccontextmanager
@@ -70,7 +87,7 @@ if config.FRONTEND_DIST.is_dir():
     # 前端 dist 由 FastAPI 静态伺服（ARCHITECTURE.md 第 1 章「单文件部署」）
     app.mount(
         "/",
-        StaticFiles(directory=str(config.FRONTEND_DIST), html=True),
+        SPAStaticFiles(directory=str(config.FRONTEND_DIST), html=True),
         name="frontend",
     )
 else:

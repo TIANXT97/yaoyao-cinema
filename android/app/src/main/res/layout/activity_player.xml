@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  夭夭影社 · 原生硬解播放器布局
+  Media3 PlayerView 默认控制器 + 纯黑背景，全屏沉浸。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/yy_player_bg"
+    android:keepScreenOn="true">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/yy_player_bg"
+        app:resize_mode="fit"
+        app:show_buffering="when_playing"
+        app:surface_type="surface_view"
+        app:use_controller="true" />
+
+</FrameLayout>
