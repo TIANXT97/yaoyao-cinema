@@ -1,0 +1,25 @@
+# —— 夭夭影社 · 运行时数据 / 媒体（ARCHITECTURE.md 第 5 章） ——
+data/
+media/
+frontend/dist/
+*.db
+*.db-wal
+*.db-shm
+
+# —— Python ——
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# —— Node / 前端 ——
+node_modules/
+dist/
+
+# —— 编辑器 / 系统 ——
+.DS_Store
+.idea/
+.vscode/
+*.log

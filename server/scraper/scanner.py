@@ -1,0 +1,225 @@
+"""夭夭影社 · 媒体文件扫描器（ARCHITECTURE.md 2.4.2）。
+
+深度遍历 ``MEDIA_ROOT``，发现新视频文件 → ffprobe 探测 → 注册进 videos 表；
+已存在（``file_path`` 匹配）跳过；文件消失仅告警保留记录。
+
+注意：``videos`` 表在 2.2.1 中 **没有** missing 标记字段，故遵循铁律不新增列，
+消失文件交由 ``Database.mark_missing`` 记录日志，不改变数据库结构。
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+from uuid import uuid4
+
+from .. import config
+from ..database import Database
+from ..database import db as default_db
+from ..utils.ffprobe import ffprobe_async
+from ..utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+# 扫描任务状态（供 GET /api/scraper/status 读取）
+_status: dict[str, Any] = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "last_result": None,
+}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_status() -> dict[str, Any]:
+    """返回当前扫描任务状态。"""
+    return dict(_status)
+
+
+def find_nfo(video_path: Path) -> Optional[Path]:
+    """在同目录查找与视频同名的 ``.nfo``（回退 ``movie.nfo``）。"""
+    candidate = video_path.with_suffix(".nfo")
+    if candidate.is_file():
+        return candidate
+    movie_nfo = video_path.parent / "movie.nfo"
+    if movie_nfo.is_file():
+        return movie_nfo
+    return None
+
+
+def _text(node: Optional[ET.Element]) -> Optional[str]:
+    if node is None or node.text is None:
+        return None
+    value = node.text.strip()
+    return value or None
+
+
+def _normalize_bangou(raw: str) -> str:
+    return re.sub(r"[-_\s]", "", raw.upper())
+
+
+def parse_nfo(nfo_path: Path) -> dict[str, Any]:
+    """解析 NFO，仅提取 videos 表已定义的字段。
+
+    （完整 NFO 处理属于 Phase 2 ``scraper/nfo_handler.py``，此处提供最小可用实现。）
+    """
+    try:
+        root = ET.parse(nfo_path).getroot()
+    except (ET.ParseError, OSError) as exc:
+        logger.warning("NFO 解析失败: %s (%s)", nfo_path, exc)
+        return {}
+
+    data: dict[str, Any] = {}
+
+    def set_if(key: str, tag: str) -> None:
+        value = _text(root.find(tag))
+        if value is not None:
+            data[key] = value
+
+    set_if("title", "title")
+    set_if("original_title", "originaltitle")
+    set_if("sort_title", "sorttitle")
+    set_if("studio", "studio")
+    set_if("director", "director")
+    set_if("plot", "plot")
+
+    bangou = _text(root.find("num"))
+    if bangou:
+        data["bangou"] = bangou
+        data["bangou_norm"] = _normalize_bangou(bangou)
+
+    premiered = _text(root.find("premiered"))
+    if premiered:
+        data["release_date"] = premiered
+    else:
+        year = _text(root.find("year"))
+        if year:
+            data["release_date"] = f"{year}-01-01"
+
+    runtime = _text(root.find("runtime"))
+    if runtime:
+        try:
+            data["duration"] = int(float(runtime)) * 60  # NFO runtime 单位为分钟
+        except ValueError:
+            pass
+
+    rating = _text(root.find("rating"))
+    if rating:
+        try:
+            data["rating"] = float(rating)
+        except ValueError:
+            pass
+
+    return data
+
+
+async def _build_record(video_path: Path) -> dict[str, Any]:
+    """为一部新发现的影片构建 videos 记录。"""
+    try:
+        file_size = video_path.stat().st_size
+    except OSError:
+        file_size = 0
+
+    probe = await ffprobe_async(video_path)
+    suffix = video_path.suffix.lower()
+    record: dict[str, Any] = {
+        "id": str(uuid4()),
+        "title": video_path.stem,
+        "file_path": str(video_path),
+        "file_name": video_path.name,
+        "file_size": file_size,
+        "duration": probe.get("duration", 0),
+        "resolution": probe.get("resolution"),
+        "video_codec": probe.get("video_codec"),
+        "audio_codec": probe.get("audio_codec"),
+        "container": suffix.lstrip("."),
+        "bitrate": probe.get("bitrate"),
+        "scrape_status": "pending",
+    }
+
+    nfo_file = find_nfo(video_path)
+    if nfo_file is not None:
+        nfo_data = parse_nfo(nfo_file)
+        record.update(nfo_data)
+        record["scrape_status"] = "matched"
+        record["nfo_path"] = str(nfo_file)
+
+    return record
+
+
+async def scan_media_library(
+    database: Optional[Database] = None,
+) -> dict[str, Any]:
+    """扫描媒体库，返回汇总结果。"""
+    database = database or default_db
+
+    if _status["running"]:
+        logger.warning("已有扫描任务在运行，忽略本次触发")
+        return dict(_status.get("last_result") or {})
+
+    started_at = _now()
+    _status.update(running=True, started_at=started_at, finished_at=None)
+
+    discovered: set[str] = set()
+    added = 0
+    skipped = 0
+    result: Optional[dict[str, Any]] = None
+
+    try:
+        existing = await database.get_all_video_paths()
+
+        if not config.MEDIA_ROOT.is_dir():
+            logger.warning("媒体目录不存在: %s", config.MEDIA_ROOT)
+        else:
+            for root, _dirs, files in os.walk(config.MEDIA_ROOT):
+                for fname in files:
+                    if Path(fname).suffix.lower() not in config.VIDEO_EXTS:
+                        continue
+                    full_path = str(Path(root) / fname)
+                    discovered.add(full_path)
+
+                    if full_path in existing:
+                        skipped += 1
+                        continue
+
+                    try:
+                        record = await _build_record(Path(full_path))
+                        await database.insert_video(record)
+                        added += 1
+                    except Exception as exc:  # noqa: BLE001 - 单个文件失败不阻断整体扫描
+                        logger.error("注册影片失败 %s: %s", full_path, exc)
+
+        missing = existing - discovered
+        if missing:
+            await database.mark_missing(sorted(missing))
+
+        result = {
+            "discovered": len(discovered),
+            "added": added,
+            "skipped": skipped,
+            "missing": len(missing),
+            "media_root": str(config.MEDIA_ROOT),
+            "started_at": started_at,
+            "finished_at": _now(),
+        }
+        logger.info(
+            "扫描完成: 发现 %d, 新增 %d, 跳过 %d, 消失 %d",
+            result["discovered"],
+            result["added"],
+            result["skipped"],
+            result["missing"],
+        )
+        return result
+    finally:
+        _status.update(
+            running=False,
+            finished_at=_now(),
+            last_result=result if result is not None else _status.get("last_result"),
+        )

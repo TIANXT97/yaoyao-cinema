@@ -1,0 +1,9 @@
+# 夭夭影社 · 服务端依赖（对齐 ARCHITECTURE.md 第 5 章 requirements.txt 注释）
+fastapi>=0.115
+uvicorn[standard]>=0.30
+aiosqlite>=0.20
+aiofiles>=24.1
+httpx>=0.27
+Pillow>=10.0
+pydantic>=2.8
+python-multipart>=0.0.9
