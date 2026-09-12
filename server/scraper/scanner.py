@@ -63,6 +63,55 @@ def get_status() -> dict[str, Any]:
     return dict(_status)
 
 
+
+def find_local_artwork(video_path: Path) -> dict[str, str]:
+    """在视频同目录下查找本地现成的海报和封面图。
+    
+    支持优先级：
+    1. poster.jpg / poster.png
+    2. cover.jpg / cover.png
+    3. folder.jpg / folder.png
+    4. <stem>-poster.jpg
+    5. <stem>.jpg / <stem>.png
+    """
+    parent = video_path.parent
+    stem = video_path.stem
+
+    candidates = [
+        parent / "poster.jpg",
+        parent / "poster.png",
+        parent / f"{stem}-poster.jpg",
+        parent / f"{stem}-poster.png",
+        parent / "cover.jpg",
+        parent / "cover.png",
+        parent / "folder.jpg",
+        parent / "folder.png",
+        parent / f"{stem}.jpg",
+        parent / f"{stem}.png",
+    ]
+
+    art: dict[str, str] = {}
+    for cand in candidates:
+        if cand.is_file():
+            art["poster_path"] = str(cand)
+            art["thumb_path"] = str(cand)
+            break
+
+    # 寻找横版 backdrop（如 backdrop.jpg, fanart.jpg, -thumb.jpg, cover.jpg）
+    backdrop_candidates = [
+        parent / "backdrop.jpg",
+        parent / "fanart.jpg",
+        parent / f"{stem}-fanart.jpg",
+        parent / f"{stem}-backdrop.jpg",
+        parent / "cover.jpg",
+    ]
+    for cand in backdrop_candidates:
+        if cand.is_file():
+            art["backdrop_path"] = str(cand)
+            break
+
+    return art
+
 def find_nfo(video_path: Path) -> Optional[Path]:
     """在同目录查找与视频同名的 ``.nfo``（回退 ``movie.nfo``）。"""
     candidate = video_path.with_suffix(".nfo")
@@ -164,6 +213,10 @@ async def _build_record(video_path: Path) -> dict[str, Any]:
         "scrape_status": "pending",
     }
 
+    # 扫描并绑定本地已有的 poster / cover / backdrop
+    local_art = find_local_artwork(video_path)
+    record.update(local_art)
+
     nfo_file = find_nfo(video_path)
     if nfo_file is not None:
         nfo_data = parse_nfo(nfo_file)
@@ -226,6 +279,13 @@ async def _scan_locked(database: Database) -> dict[str, Any]:
                     discovered.add(full_path)
 
                     if full_path in existing:
+                        # 若已有记录缺少海报，重新探测本地海报并补齐
+                        cur_vid = await database.get_video_by_path(full_path)
+                        if cur_vid and not cur_vid.get("poster_path"):
+                            art = find_local_artwork(Path(full_path))
+                            if art.get("poster_path"):
+                                await database.update_video(cur_vid["id"], art)
+                                logger.info("补齐本地海报 %s: %s", full_path, art["poster_path"])
                         skipped += 1
                         continue
 
