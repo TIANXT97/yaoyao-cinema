@@ -91,13 +91,21 @@ def find_local_artwork(video_path: Path) -> dict[str, str]:
     ]
 
     art: dict[str, str] = {}
+    media_root = config.MEDIA_ROOT.resolve()
+
+    def to_rel(p: Path) -> str:
+        try:
+            return str(p.resolve().relative_to(media_root))
+        except ValueError:
+            return str(p)
+
     for cand in candidates:
         if cand.is_file():
-            art["poster_path"] = str(cand)
-            art["thumb_path"] = str(cand)
+            rel_str = to_rel(cand)
+            art["poster_path"] = rel_str
+            art["thumb_path"] = rel_str
             break
 
-    # 寻找横版 backdrop（如 backdrop.jpg, fanart.jpg, -thumb.jpg, cover.jpg）
     backdrop_candidates = [
         parent / "backdrop.jpg",
         parent / "fanart.jpg",
@@ -107,7 +115,7 @@ def find_local_artwork(video_path: Path) -> dict[str, str]:
     ]
     for cand in backdrop_candidates:
         if cand.is_file():
-            art["backdrop_path"] = str(cand)
+            art["backdrop_path"] = to_rel(cand)
             break
 
     return art
@@ -279,13 +287,13 @@ async def _scan_locked(database: Database) -> dict[str, Any]:
                     discovered.add(full_path)
 
                     if full_path in existing:
-                        # 若已有记录缺少海报，重新探测本地海报并补齐
+                        # 重新探测本地海报，并规范化更新相对路径
                         cur_vid = await database.get_video_by_path(full_path)
-                        if cur_vid and not cur_vid.get("poster_path"):
+                        if cur_vid:
                             art = find_local_artwork(Path(full_path))
-                            if art.get("poster_path"):
+                            if art.get("poster_path") and (cur_vid.get("poster_path") != art["poster_path"] or str(cur_vid.get("poster_path")).startswith("/")):
                                 await database.update_video(cur_vid["id"], art)
-                                logger.info("补齐本地海报 %s: %s", full_path, art["poster_path"])
+                                logger.info("规范化本地海报路径 %s: %s", full_path, art["poster_path"])
                         skipped += 1
                         continue
 
