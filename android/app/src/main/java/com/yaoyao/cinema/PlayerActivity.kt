@@ -3,8 +3,10 @@ package com.yaoyao.cinema
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -39,6 +41,11 @@ class PlayerActivity : AppCompatActivity() {
 
         private const val USER_AGENT = "YaoyaoCinema/1.0"
         private const val COMPLETION_THRESHOLD = 0.9
+
+        /** 允许直连播放的 URI scheme 白名单。 */
+        private val PLAYABLE_SCHEMES = setOf(
+            "http", "https", "rtsp", "rtmp", "content", "file", "asset", "android.resource",
+        )
     }
 
     private var player: ExoPlayer? = null
@@ -62,7 +69,8 @@ class PlayerActivity : AppCompatActivity() {
         playerView = findViewById(R.id.player_view)
 
         val url = intent.getStringExtra(EXTRA_URL)
-        if (url.isNullOrBlank()) {
+        if (url.isNullOrBlank() || !isPlayableUrl(url)) {
+            Toast.makeText(this, R.string.player_invalid_url, Toast.LENGTH_SHORT).show()
             setResult(Activity.RESULT_CANCELED)
             finish()
             return
@@ -91,7 +99,7 @@ class PlayerActivity : AppCompatActivity() {
         exoPlayer.setHandleAudioBecomingNoisy(true)
         exoPlayer.setMediaItem(
             MediaItem.Builder()
-                .setUri(url)
+                .setUri(Uri.parse(url))
                 .setMediaId(title.ifBlank { "yaoyao" })
                 .build(),
         )
@@ -108,6 +116,15 @@ class PlayerActivity : AppCompatActivity() {
         player?.pause()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // 极端场景（分屏销毁 / 系统强杀）下 onStop / finish 可能不执行，
+        // 若 Activity 正在结束则兜底回传进度，防止续播点丢失。
+        if (isFinishing) {
+            sendResult()
+        }
+    }
+
     override fun finish() {
         // 必须在 super.finish() 之前回传：ActivityResult 需在销毁前 setResult，
         // 否则 WebView 侧的 play() Promise 会永久挂起（结果丢失）
@@ -120,6 +137,17 @@ class PlayerActivity : AppCompatActivity() {
         player?.release()
         player = null
         super.onDestroy()
+    }
+
+    /** 校验 URL 是否为可直连播放的合法地址（scheme 白名单 + 可解析）。 */
+    private fun isPlayableUrl(url: String): Boolean {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase() ?: return false
+        if (scheme !in PLAYABLE_SCHEMES) return false
+        return when (scheme) {
+            "http", "https", "rtsp", "rtmp" -> !uri.host.isNullOrBlank()
+            else -> true
+        }
     }
 
     /** 回传播放进度给 WebView（幂等）。 */

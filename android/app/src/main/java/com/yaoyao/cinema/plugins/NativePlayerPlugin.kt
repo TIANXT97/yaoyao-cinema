@@ -2,6 +2,8 @@ package com.yaoyao.cinema.plugins
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -10,6 +12,7 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.yaoyao.cinema.PlayerActivity
+import com.yaoyao.cinema.R
 
 /**
  * NativePlayerPlugin · 原生硬解播放桥接。
@@ -30,8 +33,11 @@ class NativePlayerPlugin : Plugin() {
     @PluginMethod
     fun play(call: PluginCall) {
         val url = call.getString("url")
-        if (url.isNullOrBlank()) {
-            call.reject("url is required")
+        if (url.isNullOrBlank() || !isPlayableUrl(url)) {
+            activity?.runOnUiThread {
+                Toast.makeText(activity, R.string.player_invalid_url, Toast.LENGTH_SHORT).show()
+            }
+            call.reject("视频地址无效")
             return
         }
 
@@ -46,6 +52,17 @@ class NativePlayerPlugin : Plugin() {
 
         // 以 Activity 结果回传播放进度
         startActivityForResult(call, intent, "handlePlayResult")
+    }
+
+    /** 校验 URL 是否为可直连播放的合法地址（scheme 白名单 + 可解析）。 */
+    private fun isPlayableUrl(url: String): Boolean {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase() ?: return false
+        return when (scheme) {
+            "http", "https", "rtsp", "rtmp" -> !uri.host.isNullOrBlank()
+            "content", "file", "asset", "android.resource" -> true
+            else -> false
+        }
     }
 
     @ActivityCallback

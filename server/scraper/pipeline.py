@@ -260,69 +260,72 @@ class ScraperPipeline:
             backdrop_url=backdrop_source,
         )
 
-        # 2) 演员
+        # 2) ~ 5) 多表写入（演员 / 标签 / 系列 / 影片元数据 / 关联）
+        # 用显式事务包裹：任一环节抛错则整体回滚，杜绝脏数据半成品。
         actor_ids: list[str] = []
-        for actor_data in result.get("actors", []):
-            try:
-                actor = await self.db.get_or_create_actor(actor_data)
-                actor_ids.append(actor["id"])
-            except (ValueError, KeyError) as exc:
-                logger.warning("演员写入失败: %s (%s)", actor_data, exc)
-
-        # 3) 标签
         tag_ids: list[str] = []
-        for tag_name in result.get("tags", []):
-            try:
-                tag = await self.db.get_or_create_tag(tag_name)
-                tag_ids.append(tag["id"])
-            except (ValueError, KeyError) as exc:
-                logger.warning("标签写入失败: %s (%s)", tag_name, exc)
-
-        # 4) 系列
-        series_id = None
         series_name = result.get("series")
-        if series_name:
-            try:
-                series = await self.db.get_or_create_series(series_name)
-                series_id = series["id"]
-            except (ValueError, KeyError) as exc:
-                logger.warning("系列写入失败: %s (%s)", series_name, exc)
+        async with self.db.transaction():
+            # 2) 演员
+            for actor_data in result.get("actors", []):
+                try:
+                    actor = await self.db.get_or_create_actor(actor_data)
+                    actor_ids.append(actor["id"])
+                except (ValueError, KeyError) as exc:
+                    logger.warning("演员写入失败: %s (%s)", actor_data, exc)
 
-        # 5) 更新 videos 表（只写非空字段，避免覆盖已有信息）
-        fields: dict[str, Any] = {
-            "scrape_status": "matched",
-            "scrape_source": result.get("source") or video.get("scrape_source"),
-            "scrape_time": datetime.now(timezone.utc).isoformat(),
-        }
-        for key in (
-            "title",
-            "original_title",
-            "release_date",
-            "studio",
-            "director",
-            "plot",
-        ):
-            value = result.get(key)
-            if value:
-                fields[key] = value
-        if result.get("rating") is not None:
-            fields["rating"] = result["rating"]
-        if not fields.get("title") and result.get("bangou"):
-            fields["title"] = result["bangou"]
-        if result.get("bangou"):
-            fields["sort_title"] = result["bangou"]
-            if not video.get("bangou"):
-                fields["bangou"] = result["bangou"]
-                fields["bangou_norm"] = normalize_bangou(result["bangou"])
-        if series_id:
-            fields["series_id"] = series_id
-        for key in ("poster_path", "backdrop_path", "thumb_path"):
-            if images.get(key):
-                fields[key] = images[key]
+            # 3) 标签
+            for tag_name in result.get("tags", []):
+                try:
+                    tag = await self.db.get_or_create_tag(tag_name)
+                    tag_ids.append(tag["id"])
+                except (ValueError, KeyError) as exc:
+                    logger.warning("标签写入失败: %s (%s)", tag_name, exc)
 
-        await self.db.update_video(video_id, fields)
-        await self.db.set_video_actors(video_id, actor_ids)
-        await self.db.set_video_tags(video_id, tag_ids)
+            # 4) 系列
+            series_id = None
+            if series_name:
+                try:
+                    series = await self.db.get_or_create_series(series_name)
+                    series_id = series["id"]
+                except (ValueError, KeyError) as exc:
+                    logger.warning("系列写入失败: %s (%s)", series_name, exc)
+
+            # 5) 更新 videos 表（只写非空字段，避免覆盖已有信息）
+            fields: dict[str, Any] = {
+                "scrape_status": "matched",
+                "scrape_source": result.get("source") or video.get("scrape_source"),
+                "scrape_time": datetime.now(timezone.utc).isoformat(),
+            }
+            for key in (
+                "title",
+                "original_title",
+                "release_date",
+                "studio",
+                "director",
+                "plot",
+            ):
+                value = result.get(key)
+                if value:
+                    fields[key] = value
+            if result.get("rating") is not None:
+                fields["rating"] = result["rating"]
+            if not fields.get("title") and result.get("bangou"):
+                fields["title"] = result["bangou"]
+            if result.get("bangou"):
+                fields["sort_title"] = result["bangou"]
+                if not video.get("bangou"):
+                    fields["bangou"] = result["bangou"]
+                    fields["bangou_norm"] = normalize_bangou(result["bangou"])
+            if series_id:
+                fields["series_id"] = series_id
+            for key in ("poster_path", "backdrop_path", "thumb_path"):
+                if images.get(key):
+                    fields[key] = images[key]
+
+            await self.db.update_video(video_id, fields)
+            await self.db.set_video_actors(video_id, actor_ids)
+            await self.db.set_video_tags(video_id, tag_ids)
 
         # 6) 写回 NFO
         try:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
@@ -260,6 +261,9 @@ class Database:
     def __init__(self, db_path: Optional[str] = None) -> None:
         self.db_path: str = str(db_path or config.DB_PATH)
         self._conn: Optional[aiosqlite.Connection] = None
+        # 事务嵌套深度：>0 时 execute/executemany 不再自行 commit，
+        # 统一由最外层 transaction() 决定提交或回滚。
+        self._tx_depth: int = 0
 
     # ---------------------------------------------------------------- 连接
     @property
@@ -346,24 +350,55 @@ class Database:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_actors_name ON actors(name)"
         )
 
+    # ------------------------------------------------------------ 事务
+    @asynccontextmanager
+    async def transaction(self):
+        """显式事务上下文：任一写入失败则整体回滚，防止脏数据半成品。
+
+        支持重入（嵌套调用只计入最外层）：内层不会提前提交或回滚，
+        由最外层统一 ``COMMIT`` / ``ROLLBACK``。
+        """
+        if self._tx_depth > 0:
+            self._tx_depth += 1
+            try:
+                yield self
+            finally:
+                self._tx_depth -= 1
+            return
+
+        await self.conn.execute("BEGIN IMMEDIATE")
+        self._tx_depth = 1
+        try:
+            yield self
+        except BaseException:
+            self._tx_depth = 0
+            await self.conn.rollback()
+            raise
+        else:
+            self._tx_depth = 0
+            await self.conn.commit()
+
     # ------------------------------------------------------------ 通用查询
     async def execute(
         self, sql: str, params: Sequence[Any] | Mapping[str, Any] = ()
     ) -> aiosqlite.Cursor:
         cursor = await self.conn.execute(sql, params)
-        await self.conn.commit()
+        if self._tx_depth == 0:
+            await self.conn.commit()
         return cursor
 
     async def executemany(
         self, sql: str, params_seq: Iterable[Sequence[Any]]
     ) -> aiosqlite.Cursor:
         cursor = await self.conn.executemany(sql, params_seq)
-        await self.conn.commit()
+        if self._tx_depth == 0:
+            await self.conn.commit()
         return cursor
 
     async def executescript(self, script: str) -> None:
         await self.conn.executescript(script)
-        await self.conn.commit()
+        if self._tx_depth == 0:
+            await self.conn.commit()
 
     async def fetchall(
         self, sql: str, params: Sequence[Any] | Mapping[str, Any] = ()

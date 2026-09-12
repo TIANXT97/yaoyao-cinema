@@ -4,4 +4,5 @@
     <string name="title_activity_main">夭夭影社</string>
     <string name="package_name">com.yaoyao.cinema</string>
     <string name="custom_url_scheme">com.yaoyao.cinema</string>
+    <string name="player_invalid_url">视频地址无效，无法播放</string>
 </resources>

@@ -72,28 +72,47 @@ def _ensure_dirs() -> None:
 
 
 def open_image(source: ImageSource) -> Image.Image:
-    """把多种输入统一转为 ``PIL.Image``（自动处理 EXIF 方向）。"""
+    """把多种输入统一转为 ``PIL.Image``（自动处理 EXIF 方向）。
+
+    对文件 / 字节输入一律先 ``load()`` 到内存副本，并用 ``with`` 关闭底层
+    文件句柄，避免高并发长任务下句柄泄漏。调用方获得的图像可安全 ``close()``。
+    """
+    owns_image = False
     try:
         if isinstance(source, Image.Image):
             img = source
         elif isinstance(source, (bytes, bytearray)):
-            img = Image.open(io.BytesIO(bytes(source)))
+            with Image.open(io.BytesIO(bytes(source))) as raw:
+                raw.load()
+                img = raw.copy()
+            owns_image = True
         elif isinstance(source, (str, Path)):
             path = Path(source)
             if not path.is_file():
                 raise ImageProcessingError(f"图片文件不存在: {path}")
-            img = Image.open(path)
+            with Image.open(path) as raw:
+                raw.load()
+                img = raw.copy()
+            owns_image = True
         else:  # pragma: no cover - 类型兜底
             raise ImageProcessingError(f"不支持的图片来源: {type(source)!r}")
-        img.load()
     except (UnidentifiedImageError, OSError) as exc:
         raise ImageProcessingError(f"无法解析图片: {exc}") from exc
 
-    img = ImageOps.exif_transpose(img)
-    if img.mode not in ("RGB", "L"):
-        img = img.convert("RGB")
-    elif img.mode == "L":
-        img = img.convert("RGB")
+    # EXIF 方向纠正（可能返回新对象）
+    transposed = ImageOps.exif_transpose(img)
+    if transposed is not img:
+        if owns_image:
+            img.close()
+        img = transposed
+        owns_image = True
+
+    # 统一为 RGB（L / P / RGBA 等一律转换）
+    if img.mode != "RGB":
+        converted = img.convert("RGB")
+        if owns_image:
+            img.close()
+        img = converted
     return img
 
 
@@ -106,24 +125,36 @@ def save_jpeg(
 ) -> Path:
     """以 JPEG 保存（自动转 RGB、目录、优化）。"""
     target.parent.mkdir(parents=True, exist_ok=True)
+    converted: Optional[Image.Image] = None
     if img.mode != "RGB":
-        img = img.convert("RGB")
-    img.save(
-        target,
-        format="JPEG",
-        quality=quality,
-        optimize=True,
-        progressive=progressive,
-    )
+        converted = img.convert("RGB")
+        img = converted
+    try:
+        img.save(
+            target,
+            format="JPEG",
+            quality=quality,
+            optimize=True,
+            progressive=progressive,
+        )
+    finally:
+        if converted is not None:
+            converted.close()
     return target
 
 
 def image_to_bytes(img: Image.Image, *, quality: int = JPEG_QUALITY) -> bytes:
     """把图片编码为 JPEG 字节。"""
     buffer = io.BytesIO()
+    converted: Optional[Image.Image] = None
     if img.mode != "RGB":
-        img = img.convert("RGB")
-    img.save(buffer, format="JPEG", quality=quality, optimize=True)
+        converted = img.convert("RGB")
+        img = converted
+    try:
+        img.save(buffer, format="JPEG", quality=quality, optimize=True)
+    finally:
+        if converted is not None:
+            converted.close()
     return buffer.getvalue()
 
 
@@ -144,19 +175,23 @@ def _saliency_left(img: Image.Image, window_w: int) -> int:
 
     sample_w = 64
     sample_h = 64
+    gray: Optional[Image.Image] = None
     try:
         gray = img.convert("L").resize((sample_w, sample_h))
         pixels = gray.load()
+
+        columns = [0.0] * sample_w
+        for y in range(sample_h):
+            previous = pixels[0, y]
+            for x in range(1, sample_w):
+                current = pixels[x, y]
+                columns[x] += abs(current - previous)
+                previous = current
     except (OSError, ValueError):  # pragma: no cover - 极端图片
         return width - window_w
-
-    columns = [0.0] * sample_w
-    for y in range(sample_h):
-        previous = pixels[0, y]
-        for x in range(1, sample_w):
-            current = pixels[x, y]
-            columns[x] += abs(current - previous)
-            previous = current
+    finally:
+        if gray is not None:
+            gray.close()
 
     win = max(1, round(window_w / width * sample_w))
     best_score = -1.0
@@ -235,9 +270,14 @@ def save_poster(img: Image.Image, video_id: str) -> str:
     """把图片处理为 400x600 海报并保存，返回相对 MEDIA_ROOT 路径。"""
     _ensure_dirs()
     poster = crop_poster(img)
-    poster = poster.resize(POSTER_SIZE, Image.LANCZOS)
-    target = config.POSTERS_DIR / f"{video_id}.jpg"
-    save_jpeg(poster, target, quality=JPEG_QUALITY)
+    resized = poster.resize(POSTER_SIZE, Image.LANCZOS)
+    if poster is not img:
+        poster.close()
+    try:
+        target = config.POSTERS_DIR / f"{video_id}.jpg"
+        save_jpeg(resized, target, quality=JPEG_QUALITY)
+    finally:
+        resized.close()
     return _relative(target)
 
 
@@ -245,13 +285,21 @@ def save_backdrop(img: Image.Image, video_id: str) -> tuple[str, str]:
     """保存 16:9 backdrop 与缩略图，返回 (backdrop, thumb) 相对路径。"""
     _ensure_dirs()
     backdrop = crop_backdrop(img)
-    backdrop = backdrop.resize(BACKDROP_SIZE, Image.LANCZOS)
-    backdrop_target = config.BACKDROPS_DIR / f"{video_id}.jpg"
-    save_jpeg(backdrop, backdrop_target, quality=BACKDROP_QUALITY)
+    resized = backdrop.resize(BACKDROP_SIZE, Image.LANCZOS)
+    if backdrop is not img:
+        backdrop.close()
+    try:
+        backdrop_target = config.BACKDROPS_DIR / f"{video_id}.jpg"
+        save_jpeg(resized, backdrop_target, quality=BACKDROP_QUALITY)
 
-    thumb = resize_cover(backdrop, THUMB_SIZE)
-    thumb_target = config.THUMBS_DIR / f"{video_id}.jpg"
-    save_jpeg(thumb, thumb_target, quality=JPEG_QUALITY)
+        thumb = resize_cover(resized, THUMB_SIZE)
+        try:
+            thumb_target = config.THUMBS_DIR / f"{video_id}.jpg"
+            save_jpeg(thumb, thumb_target, quality=JPEG_QUALITY)
+        finally:
+            thumb.close()
+    finally:
+        resized.close()
     return _relative(backdrop_target), _relative(thumb_target)
 
 
@@ -317,12 +365,15 @@ async def download_image(
         logger.warning("图片处理失败 %s: %s", url, exc)
         return None
 
-    if suffix == "poster":
-        return save_poster(img, video_id)
-    if suffix == "backdrop":
-        backdrop_path, _thumb = save_backdrop(img, video_id)
-        return backdrop_path
-    return save_original(img, video_id, suffix=suffix)
+    try:
+        if suffix == "poster":
+            return save_poster(img, video_id)
+        if suffix == "backdrop":
+            backdrop_path, _thumb = save_backdrop(img, video_id)
+            return backdrop_path
+        return save_original(img, video_id, suffix=suffix)
+    finally:
+        img.close()
 
 
 async def download_and_crop_poster(
@@ -341,10 +392,18 @@ async def download_and_crop_poster(
         return None
 
     _ensure_dirs()
-    poster = crop_poster(img, aspect_ratio=aspect_ratio)
-    poster = poster.resize(POSTER_SIZE, Image.LANCZOS)
     target = config.POSTERS_DIR / f"{video_id}.jpg"
-    save_jpeg(poster, target, quality=JPEG_QUALITY)
+    try:
+        cropped = crop_poster(img, aspect_ratio=aspect_ratio)
+        resized = cropped.resize(POSTER_SIZE, Image.LANCZOS)
+        if cropped is not img:
+            cropped.close()
+        try:
+            save_jpeg(resized, target, quality=JPEG_QUALITY)
+        finally:
+            resized.close()
+    finally:
+        img.close()
     return _relative(target)
 
 
@@ -369,7 +428,10 @@ async def download_and_process(
         try:
             raw = await _fetch_bytes(backdrop_url, client=client)
             img = open_image(raw)
-            backdrop_path, thumb_path = save_backdrop(img, video_id)
+            try:
+                backdrop_path, thumb_path = save_backdrop(img, video_id)
+            finally:
+                img.close()
             result["backdrop_path"] = backdrop_path
             result["thumb_path"] = thumb_path
         except ImageProcessingError as exc:
@@ -379,7 +441,10 @@ async def download_and_process(
         try:
             raw = await _fetch_bytes(poster_url, client=client)
             img = open_image(raw)
-            backdrop_path, thumb_path = save_backdrop(img, video_id)
+            try:
+                backdrop_path, thumb_path = save_backdrop(img, video_id)
+            finally:
+                img.close()
             result["backdrop_path"] = backdrop_path
             result["thumb_path"] = thumb_path
         except ImageProcessingError:

@@ -16,6 +16,19 @@ def _compute_progress(position: int, duration: int) -> float:
         return max(0.0, min(1.0, position / duration))
     return 0.0
 
+def _to_completed(value: Any) -> int:
+    """把任意 bool / 数值 / 字符串安全归一为 SQLite 整型 ``1`` / ``0``。
+
+    避免 ``True`` / ``"1"`` / ``1.0`` 等类型混淆写入 watch_history.completed。
+    """
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, (int, float)):
+        return 1 if value else 0
+    if isinstance(value, str):
+        return 1 if value.strip().lower() in {"1", "true", "yes", "y"} else 0
+    return 1 if value else 0
+
 
 async def report_progress(
     db: Database,
@@ -41,7 +54,7 @@ async def report_progress(
         video_seconds = int(video.get("duration") or 0)
         duration = max(0, video_seconds * 1000)
     progress = _compute_progress(position, duration)
-    completed = 1 if progress >= COMPLETED_THRESHOLD else 0
+    completed = _to_completed(progress >= COMPLETED_THRESHOLD)
 
     latest = await db.fetchone(
         "SELECT completed FROM watch_history WHERE video_id = ? "
@@ -49,7 +62,7 @@ async def report_progress(
         (video_id,),
     )
     # 首次观看，或上次已看完后重新开始 → 播放次数 +1
-    is_new_session = latest is None or int(latest.get("completed") or 0) == 1
+    is_new_session = latest is None or _to_completed(latest.get("completed")) == 1
     new_play_count = int(video.get("play_count") or 0) + (1 if is_new_session else 0)
 
     history_id = str(uuid4())
