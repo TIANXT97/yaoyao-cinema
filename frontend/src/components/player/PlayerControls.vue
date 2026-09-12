@@ -3,6 +3,7 @@
  * PlayerControls —— 播放控件层（顶栏标题 + 底栏控制）。
  */
 import {
+  Airplay,
   ArrowLeft,
   Maximize,
   Minimize,
@@ -26,8 +27,9 @@ withDefaults(
     speed?: number
     fullscreen?: boolean
     title?: string
+    hasAirplay?: boolean
   }>(),
-  { buffered: 0, speed: 1, fullscreen: false, title: '' },
+  { buffered: 0, speed: 1, fullscreen: false, title: '', hasAirplay: false },
 )
 
 const emit = defineEmits<{
@@ -37,6 +39,7 @@ const emit = defineEmits<{
   (e: 'back'): void
   (e: 'speed'): void
   (e: 'fullscreen'): void
+  (e: 'airplay'): void
 }>()
 </script>
 
@@ -59,6 +62,15 @@ const emit = defineEmits<{
           <ArrowLeft :size="19" :stroke-width="1.6" />
         </button>
         <h1 class="truncate text-sm font-normal text-white/90">{{ title }}</h1>
+        <button
+          v-if="hasAirplay"
+          type="button"
+          class="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors duration-150 ease-yy hover:text-white"
+          aria-label="无线投屏"
+          @click="emit('airplay')"
+        >
+          <Airplay :size="19" :stroke-width="1.6" />
+        </button>
       </div>
 
       <!-- 底栏 -->

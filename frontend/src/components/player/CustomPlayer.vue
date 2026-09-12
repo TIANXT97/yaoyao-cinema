@@ -40,6 +40,32 @@ const emit = defineEmits<{
 const store = usePlayerStore()
 
 const container = ref<HTMLElement | null>(null)
+
+const canAirplay = ref(false)
+
+function checkAirplay() {
+  const el = videoEl.value as any
+  if (el && (window as any).WebKitPlaybackTargetAvailabilityEvent) {
+    el.addEventListener('webkitplaybacktargetavailabilitychanged', (event: any) => {
+      canAirplay.value = (event.availability === 'available')
+    })
+  } else if (el && typeof el.webkitShowPlaybackTargetPicker === 'function') {
+    canAirplay.value = true
+  }
+}
+
+function triggerAirplay() {
+  const el = videoEl.value as any
+  if (el && typeof el.webkitShowPlaybackTargetPicker === 'function') {
+    el.webkitShowPlaybackTargetPicker()
+  } else {
+    // 兼容标准 remote playback API
+    if (el && el.remote && typeof el.remote.prompt === 'function') {
+      el.remote.prompt().catch(() => {})
+    }
+  }
+}
+
 const videoEl = ref<HTMLVideoElement | null>(null)
 
 const scrubbing = ref(false)
@@ -287,6 +313,8 @@ function handleSurfaceClick(event: MouseEvent): void {
 // 生命周期
 // ---------------------------------------------------------------------------
 onMounted(() => {
+  checkAirplay()
+
   document.addEventListener('fullscreenchange', onFullscreenChange)
   const el = videoEl.value
   if (el) {
@@ -319,6 +347,7 @@ defineExpose({ play, togglePlay, seekTo })
       :style="videoStyle"
       playsinline
       webkit-playsinline
+      x-webkit-airplay="allow"
       preload="metadata"
       @loadedmetadata="onLoadedMetadata"
       @timeupdate="onTimeUpdate"
@@ -366,6 +395,8 @@ defineExpose({ play, togglePlay, seekTo })
 
     <!-- 控件 -->
     <PlayerControls
+        :has-airplay="canAirplay"
+        @airplay="triggerAirplay"
       :visible="store.showControls"
       :playing="store.isPlaying"
       :current-time="store.currentTime"
