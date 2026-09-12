@@ -1,0 +1,341 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   夭夭影社 · 全局样式 / 设计 Token
+   设计哲学：东方纯白极简通透（Anti-Slop Minimalist Editorial）
+   留白即信息，通透即力量，克制即奢侈。
+   ========================================================================== */
+
+/* —— Tailwind v4 CSS-first 主题：映射为工具类（bg-paper / text-ink ...） —— */
+@theme {
+  /* 主色调 · 纯白宣纸 */
+  --color-paper: #ffffff;
+  --color-paper-soft: #fafafa;
+  --color-paper-mute: #f5f5f5;
+  --color-paper-elevated: #ffffff;
+
+  /* 文字层级 */
+  --color-ink: #1a1a1a;
+  --color-ink-soft: #666666;
+  --color-ink-faint: #999999;
+  --color-ink-mute: #cccccc;
+
+  /* 分割线 / 点缀 */
+  --color-line: #ebebeb;
+  --color-accent: #d4a574;
+  --color-accent-hover: #c49464;
+
+  /* 播放器暗色 */
+  --color-player: #000000;
+
+  /* 字体 */
+  --font-sans:
+    'SF Pro Text', 'PingFang SC', 'Hiragino Sans', 'Noto Sans SC', system-ui,
+    -apple-system, sans-serif;
+  --font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* 圆角 · 克制温和 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* 阴影 · 轻盈通透 */
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-poster: 0 8px 32px rgba(0, 0, 0, 0.08);
+
+  /* 缓动 · 丝滑但不浮夸 */
+  --ease-yy: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-yy-out: cubic-bezier(0, 0, 0.25, 1);
+}
+
+/* —— 原始设计 Token（供 DevTools 审阅，逐字对齐 ARCHITECTURE.md 3.1） —— */
+:root {
+  --yy-bg-primary: #ffffff;
+  --yy-bg-secondary: #fafafa;
+  --yy-bg-tertiary: #f5f5f5;
+  --yy-bg-elevated: #ffffff;
+
+  --yy-text-primary: #1a1a1a;
+  --yy-text-secondary: #666666;
+  --yy-text-tertiary: #999999;
+  --yy-text-muted: #cccccc;
+
+  --yy-accent: #d4a574;
+  --yy-accent-hover: #c49464;
+  --yy-divider: #ebebeb;
+  --yy-overlay: rgba(0, 0, 0, 0.03);
+
+  --yy-player-bg: #000000;
+  --yy-player-control: rgba(255, 255, 255, 0.85);
+
+  --yy-font-sans: 'SF Pro Text', 'PingFang SC', 'Hiragino Sans', 'Noto Sans SC',
+    system-ui, sans-serif;
+  --yy-font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif;
+  --yy-font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+
+  --yy-space-1: 0.25rem;
+  --yy-space-2: 0.5rem;
+  --yy-space-3: 0.75rem;
+  --yy-space-4: 1rem;
+  --yy-space-6: 1.5rem;
+  --yy-space-8: 2rem;
+  --yy-space-12: 3rem;
+  --yy-space-16: 4rem;
+
+  --yy-radius-sm: 4px;
+  --yy-radius-md: 8px;
+  --yy-radius-lg: 12px;
+  --yy-radius-xl: 16px;
+
+  --yy-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --yy-ease-out: cubic-bezier(0, 0, 0.25, 1);
+  --yy-duration-fast: 150ms;
+  --yy-duration-base: 250ms;
+  --yy-duration-slow: 400ms;
+
+  color-scheme: light;
+}
+
+/* —— Base —— */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  #app {
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  ::selection {
+    background: rgba(212, 165, 116, 0.22);
+  }
+
+  /* macOS 风格自动隐藏滚动条 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #e2e2e2 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #e8e8e8;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* —— 工具类 —— */
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+  .mt-safe {
+    margin-top: env(safe-area-inset-top);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* 番号 / 元信息标签：优雅字距 */
+  .tracking-bangou {
+    letter-spacing: 0.05em;
+  }
+
+  /* 骨架屏脉冲 */
+  .yy-skeleton {
+    background: linear-gradient(90deg, #f2f2f2 25%, #f7f7f7 37%, #f2f2f2 63%);
+    background-size: 400% 100%;
+    animation: yy-skeleton-pulse 1.4s ease infinite;
+  }
+
+  /* 播放器进度 / 音量滑杆 */
+  .yy-range {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  .yy-range::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28);
+  }
+  .yy-range::-moz-range-track {
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28);
+  }
+  .yy-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 13px;
+    height: 13px;
+    margin-top: -5px;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
+  .yy-range::-moz-range-thumb {
+    width: 13px;
+    height: 13px;
+    border: none;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
+
+  .yy-range-light::-webkit-slider-runnable-track {
+    background: #ebebeb;
+  }
+  .yy-range-light::-moz-range-track {
+    background: #ebebeb;
+  }
+  .yy-range-light::-webkit-slider-thumb {
+    background: #1a1a1a;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+  .yy-range-light::-moz-range-thumb {
+    background: #1a1a1a;
+  }
+
+  /* 隐藏原生 select 箭头 */
+  .yy-select {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: none;
+  }
+}
+
+/* —— 动效 —— */
+@keyframes yy-skeleton-pulse {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@keyframes yy-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes yy-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 路由过渡：克制滑入淡出 */
+.yy-fade-enter-active,
+.yy-fade-leave-active {
+  transition:
+    opacity 250ms cubic-bezier(0.25, 0.1, 0.25, 1),
+    transform 250ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+.yy-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.yy-fade-leave-to {
+  opacity: 0;
+}
+
+.yy-sheet-enter-active,
+.yy-sheet-leave-active {
+  transition: transform 300ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+.yy-sheet-enter-from,
+.yy-sheet-leave-to {
+  transform: translateY(100%);
+}
+
+/* 尊重「减弱动态效果」 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

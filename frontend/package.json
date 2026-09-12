@@ -1,0 +1,30 @@
+{
+  "name": "yaoyao-cinema-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "夭夭影社 · 东方纯白极简通透私家影院前端（Vue 3 + Vite + Tailwind v4）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
+    "build:only": "vite build",
+    "type-check": "vue-tsc --noEmit -p tsconfig.json",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "@vueuse/core": "^12.8.2",
+    "lucide-vue-next": "^0.468.0",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "@types/node": "^22.15.3",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "tailwindcss": "^4.1.11",
+    "typescript": "~5.7.3",
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.2.10"
+  }
+}
