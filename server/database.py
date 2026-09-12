@@ -11,8 +11,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
+from uuid import uuid4
 
 import aiosqlite
 
@@ -273,7 +277,7 @@ class Database:
         if self._conn is not None:
             return self._conn
 
-        config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = await aiosqlite.connect(self.db_path)
         self._conn.row_factory = aiosqlite.Row
 
@@ -400,6 +404,183 @@ class Database:
                 len(missing),
                 missing,
             )
+
+
+    # ---------------------------------------------------- scraper_cache 缓存
+    async def get_scraper_cache(
+        self, bangou_norm: str, source: Optional[str] = None
+    ) -> Optional[dict[str, Any]]:
+        """读取刮削缓存（可选按 source 过滤，默认取最新一条）。"""
+        if source:
+            return await self.fetchone(
+                "SELECT * FROM scraper_cache WHERE bangou_norm = ? AND source = ? "
+                "ORDER BY fetched_at DESC LIMIT 1",
+                (bangou_norm, source),
+            )
+        return await self.fetchone(
+            "SELECT * FROM scraper_cache WHERE bangou_norm = ? "
+            "ORDER BY fetched_at DESC LIMIT 1",
+            (bangou_norm,),
+        )
+
+    async def upsert_scraper_cache(
+        self,
+        bangou_norm: str,
+        source: str,
+        raw_json: str,
+        ttl_days: int = 30,
+    ) -> str:
+        """写入 / 刷新刮削缓存，返回缓存 id。"""
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(days=ttl_days)
+        ).isoformat()
+        existing = await self.fetchone(
+            "SELECT id FROM scraper_cache WHERE bangou_norm = ? AND source = ?",
+            (bangou_norm, source),
+        )
+        if existing:
+            await self.execute(
+                "UPDATE scraper_cache SET raw_json = ?, fetched_at = datetime('now'), "
+                "expires_at = ? WHERE id = ?",
+                (raw_json, expires_at, existing["id"]),
+            )
+            return str(existing["id"])
+        cache_id = str(uuid4())
+        await self.execute(
+            "INSERT INTO scraper_cache (id, bangou_norm, source, raw_json, expires_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (cache_id, bangou_norm, source, raw_json, expires_at),
+        )
+        return cache_id
+
+    # -------------------------------------------------- actors / tags / series
+    async def get_or_create_actor(self, actor_data: Mapping[str, Any]) -> dict[str, Any]:
+        """按姓名获取或创建演员，返回演员记录。"""
+        name = str(actor_data.get("name") or actor_data.get("name_ja") or "").strip()
+        if not name:
+            raise ValueError("actor 缺少 name")
+
+        record = await self.fetchone(
+            "SELECT * FROM actors WHERE name = ? LIMIT 1", (name,)
+        )
+        if record:
+            return record
+
+        name_ja = str(actor_data.get("name_ja") or "").strip() or None
+        if name_ja:
+            record = await self.fetchone(
+                "SELECT * FROM actors WHERE name_ja = ? LIMIT 1", (name_ja,)
+            )
+            if record:
+                return record
+
+        actor_id = str(uuid4())
+        aliases = actor_data.get("aliases")
+        if isinstance(aliases, (list, tuple, set)):
+            aliases = json.dumps(list(aliases), ensure_ascii=False)
+        photo_path = actor_data.get("photo_path") or actor_data.get("thumb")
+        await self.execute(
+            "INSERT INTO actors (id, name, name_ja, aliases, photo_path, birth_date, "
+            "measurements, cup_size, height, nationality) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                actor_id,
+                name,
+                name_ja,
+                aliases,
+                photo_path,
+                actor_data.get("birth_date"),
+                actor_data.get("measurements"),
+                actor_data.get("cup_size"),
+                actor_data.get("height"),
+                actor_data.get("nationality"),
+            ),
+        )
+        created = await self.get_actor(actor_id)
+        assert created is not None
+        return created
+
+    async def get_actor(self, actor_id: str) -> Optional[dict[str, Any]]:
+        return await self.fetchone("SELECT * FROM actors WHERE id = ?", (actor_id,))
+
+    async def get_or_create_tag(
+        self,
+        name: str,
+        name_ja: Optional[str] = None,
+        category: str = "genre",
+    ) -> dict[str, Any]:
+        """按名称获取或创建标签。"""
+        clean = str(name).strip()
+        if not clean:
+            raise ValueError("tag 名称不能为空")
+        record = await self.fetchone("SELECT * FROM tags WHERE name = ?", (clean,))
+        if record:
+            return record
+        tag_id = str(uuid4())
+        await self.execute(
+            "INSERT INTO tags (id, name, name_ja, category) VALUES (?, ?, ?, ?)",
+            (tag_id, clean, name_ja, category or "genre"),
+        )
+        created = await self.fetchone("SELECT * FROM tags WHERE id = ?", (tag_id,))
+        assert created is not None
+        return created
+
+    async def get_or_create_series(
+        self, name: str, name_ja: Optional[str] = None
+    ) -> dict[str, Any]:
+        """按名称获取或创建系列。"""
+        clean = str(name).strip()
+        if not clean:
+            raise ValueError("series 名称不能为空")
+        record = await self.fetchone("SELECT * FROM series WHERE name = ?", (clean,))
+        if record:
+            return record
+        series_id = str(uuid4())
+        await self.execute(
+            "INSERT INTO series (id, name, name_ja) VALUES (?, ?, ?)",
+            (series_id, clean, name_ja),
+        )
+        created = await self.fetchone("SELECT * FROM series WHERE id = ?", (series_id,))
+        assert created is not None
+        return created
+
+    async def set_video_actors(self, video_id: str, actor_ids: Sequence[str]) -> None:
+        """整体替换影片的演员关联（触发器维护 video_count）。"""
+        await self.execute("DELETE FROM video_actors WHERE video_id = ?", (video_id,))
+        unique_ids = list(dict.fromkeys(aid for aid in actor_ids if aid))
+        if unique_ids:
+            await self.executemany(
+                "INSERT OR IGNORE INTO video_actors (video_id, actor_id) VALUES (?, ?)",
+                [(video_id, actor_id) for actor_id in unique_ids],
+            )
+
+    async def set_video_tags(self, video_id: str, tag_ids: Sequence[str]) -> None:
+        """整体替换影片的标签关联。"""
+        await self.execute("DELETE FROM video_tags WHERE video_id = ?", (video_id,))
+        unique_ids = list(dict.fromkeys(tid for tid in tag_ids if tid))
+        if unique_ids:
+            await self.executemany(
+                "INSERT OR IGNORE INTO video_tags (video_id, tag_id) VALUES (?, ?)",
+                [(video_id, tag_id) for tag_id in unique_ids],
+            )
+
+    # ------------------------------------------------------------ 批量刮削
+    async def get_videos_by_status(
+        self, statuses: Sequence[str], limit: Optional[int] = None
+    ) -> list[dict[str, Any]]:
+        """按刮削状态筛选影片（默认按入库时间正序）。"""
+        if not statuses:
+            return []
+        placeholders = ", ".join("?" for _ in statuses)
+        sql = (
+            f"SELECT * FROM videos WHERE scrape_status IN ({placeholders}) "
+            "ORDER BY date_added ASC, id ASC"
+        )
+        params: list[Any] = list(statuses)
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        return await self.fetchall(sql, tuple(params))
 
 
 # 全局单例：由 server.main lifespan 负责 connect / close
