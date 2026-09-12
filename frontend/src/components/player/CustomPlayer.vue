@@ -18,7 +18,7 @@ import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { usePlayerStore } from '@/stores/player'
 import { CONTROLS_HIDE_DELAY, PLAYBACK_RATES } from '@/utils/constants'
 import { clamp } from '@/utils/format'
-import { isIOS, isStandalonePWA } from '@/utils/platform'
+import { isAndroid, isIOS, isStandalonePWA } from '@/utils/platform'
 
 const props = withDefaults(
   defineProps<{
@@ -43,6 +43,34 @@ const store = usePlayerStore()
 const container = ref<HTMLElement | null>(null)
 
 const canAirplay = ref(true)
+
+const showCastModal = ref(false)
+const copySuccess = ref(false)
+
+function copyStreamUrl() {
+  if (navigator.clipboard && src.value) {
+    navigator.clipboard.writeText(src.value).then(() => {
+      copySuccess.value = true
+      setTimeout(() => { copySuccess.value = false }, 2000)
+    }).catch(() => {})
+  }
+}
+
+function openExternalPlayer() {
+  if (!src.value) return
+  // 安卓 Intent: 调用系统内支持投屏的原生播放器（如手机自带视频、MX Player、VLC）
+  const cleanUrl = src.value.replace(/^https?:\/\//, '')
+  const isHttps = src.value.startsWith('https')
+  const scheme = isHttps ? 'https' : 'http'
+  const intentUrl = `intent:${cleanUrl}#Intent;scheme=${scheme};type=video/*;package=org.videolan.vlc;end`
+  
+  // 尝试唤起，降级直接跳转流地址触发安卓系统调用
+  window.location.href = intentUrl
+  setTimeout(() => {
+    window.location.href = src.value
+  }, 1000)
+}
+
 
 /** AirPlay 降级提示：PWA 模式下弹出原生全屏时的引导文字 */
 const airplayHint = ref('')
@@ -77,31 +105,30 @@ function triggerAirplay(): void {
   const el = videoEl.value as any
   if (!el) return
 
-  // 确保视频已经起播，未起播时 Safari 经常静默拒绝 AirPlay 握手
-  if (el.paused) {
-    el.play().catch(() => {})
-  }
-
-  // 策略 A：如果是 iOS / iPadOS 设备，最直接、最稳妥的就是直接切入系统原生全屏播放器
-  // iOS 原生播放器顶栏自带系统级 AirPlay 图标，100% 不会被任何网页层级遮挡！
-  if (typeof el.webkitEnterFullscreen === 'function') {
-    try {
-      el.webkitEnterFullscreen()
-      showAirplayHint('已进入原生全屏，点击屏幕上方 AirPlay 图标即可投屏')
-    } catch (e) {
-      console.warn('webkitEnterFullscreen error:', e)
+  // 1️⃣ iPad / iOS 设备：切入苹果原生全屏（顶栏自带系统 AirPlay 图标）
+  if (isIOS()) {
+    if (el.paused) el.play().catch(() => {})
+    if (typeof el.webkitEnterFullscreen === 'function') {
+      try {
+        el.webkitEnterFullscreen()
+        showAirplayHint('已进入原生播放器，点击顶栏 AirPlay 图标即可投屏')
+        return
+      } catch (e) {
+        console.warn('webkitEnterFullscreen error:', e)
+      }
+    }
+    if (typeof el.webkitShowPlaybackTargetPicker === 'function') {
+      try {
+        el.webkitShowPlaybackTargetPicker()
+        return
+      } catch {}
     }
   }
 
-  // 策略 B：尝试呼出系统 Picker 弹窗
-  if (typeof el.webkitShowPlaybackTargetPicker === 'function') {
-    try {
-      el.webkitShowPlaybackTargetPicker()
-    } catch (e) {
-      console.warn('webkitShowPlaybackTargetPicker failed:', e)
-    }
-  } else if (el.remote && typeof el.remote.prompt === 'function') {
-    el.remote.prompt().catch(() => {})
+  // 2️⃣ 安卓手机设备：弹出多端投屏助手弹窗（支持外部播放器直投 + 直链复制）
+  if (isAndroid() || !isIOS()) {
+    showCastModal.value = true
+    return
   }
 }
 
@@ -465,4 +492,51 @@ defineExpose({ play, togglePlay, seekTo })
       @fullscreen="toggleFullscreen"
     />
   </div>
+
+    <!-- 安卓 / 通用多端大屏无线投屏弹窗 -->
+    <div
+      v-if="showCastModal"
+      class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center sm:p-4"
+      @click.self="showCastModal = false"
+    >
+      <div class="w-full max-w-sm rounded-t-2xl bg-white p-5 text-ink shadow-2xl sm:rounded-2xl dark:bg-stone-900 dark:text-white">
+        <div class="flex items-center justify-between pb-3 border-b border-stone-100 dark:border-stone-800">
+          <h3 class="text-base font-medium">大屏无线投屏</h3>
+          <button type="button" class="text-xs text-ink-faint hover:text-ink" @click="showCastModal = false">
+            关闭
+          </button>
+        </div>
+
+        <p class="mt-3 text-xs text-ink-muted leading-relaxed">
+          安卓手机浏览器受限无法直接扫描局域网 TV。推荐通过以下两种方式秒投电视：
+        </p>
+
+        <div class="mt-4 space-y-2.5">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between rounded-xl bg-accent/10 px-4 py-3 text-left transition hover:bg-accent/20"
+            @click="openExternalPlayer"
+          >
+            <div>
+              <p class="text-sm font-medium text-accent">唤起手机播放器投屏</p>
+              <p class="text-[11px] text-accent/70">调用系统自带播放器/VLC/MX Player直投</p>
+            </div>
+            <span class="text-xs font-semibold text-accent">➔</span>
+          </button>
+
+          <button
+            type="button"
+            class="flex w-full items-center justify-between rounded-xl bg-stone-100 px-4 py-3 text-left transition hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700"
+            @click="copyStreamUrl"
+          >
+            <div>
+              <p class="text-sm font-medium">复制原画直链地址</p>
+              <p class="text-[11px] text-ink-faint">复制后可在投屏神器/外部播放器直接粘贴</p>
+            </div>
+            <span class="text-xs text-ink-soft">{{ copySuccess ? '已复制！' : '复制' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
 </template>
