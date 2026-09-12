@@ -86,7 +86,19 @@
       media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)"
       href="/splash/splash-2048x2732.png"
     />
-  </head>
+    <script>
+    // 自动清理旧版本 Service Worker 污染的图片缓存
+    if ('caches' in window) {
+      caches.keys().then(function(names) {
+        for (let name of names) {
+          if (name.includes('image') || name.includes('poster')) {
+            caches.delete(name);
+          }
+        }
+      });
+    }
+  </script>
+</head>
   <body class="bg-white text-[#1A1A1A] antialiased">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>

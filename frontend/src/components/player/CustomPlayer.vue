@@ -6,7 +6,7 @@
  * - HTTP 206 流直解（`/api/stream/{id}`）；
  * - 双击左/右快退/快进 10s；
  * - 垂直滑动（左亮度 / 右音量）、水平滑动快进快退；
- * - 单击切换控件，控件 3.2s 自动隐藏；
+ * - 单击切换控件，控件 4s 自动隐藏（拖动进度条时绝不隐藏）；
  * - 续播定位 + 每 10s 自动进度上报（暂停 / 离开强制上报）。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -57,17 +57,24 @@ const videoStyle = computed(() => ({
 // ---------------------------------------------------------------------------
 // 手势
 // ---------------------------------------------------------------------------
-const { feedback, seekFlash, onTouchStart, onTouchMove, onTouchEnd } =
-  usePlayerGestures({
-    video: () => videoEl.value,
-    seekBy: (delta) => seekBy(delta),
-    setVolume: (value) => applyVolume(value),
-    setBrightness: (value) => store.setBrightness(value),
-    getVolume: () => store.volume,
-    getBrightness: () => store.brightness,
-    toggleControls: () => store.toggleControls(),
-    onActivity: () => activity(),
-  })
+const {
+  feedback,
+  seekFlash,
+  doubleTapHint,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+  handleClick,
+} = usePlayerGestures({
+  video: () => videoEl.value,
+  seekBy: (delta) => seekBy(delta),
+  setVolume: (value) => applyVolume(value),
+  setBrightness: (value) => store.setBrightness(value),
+  getVolume: () => store.volume,
+  getBrightness: () => store.brightness,
+  toggleControls: () => store.toggleControls(),
+  onActivity: () => activity(),
+})
 
 // ---------------------------------------------------------------------------
 // 控件自动隐藏
@@ -81,7 +88,8 @@ function clearHideTimer(): void {
 
 function scheduleHide(): void {
   clearHideTimer()
-  if (!store.isPlaying) return
+  // 正在拖动进度条或已暂停时，绝不自动隐藏
+  if (!store.isPlaying || scrubbing.value) return
   hideTimer = setTimeout(() => store.setControlsVisible(false), CONTROLS_HIDE_DELAY)
 }
 
@@ -246,6 +254,14 @@ function onEnded(): void {
 
 function onSeekingState(active: boolean): void {
   scrubbing.value = active
+  if (active) {
+    // 正在拖动进度条：取消隐藏定时器，保持控制栏可见
+    clearHideTimer()
+    store.setControlsVisible(true)
+  } else {
+    // 拖动结束：重新开始 4s 倒计时
+    scheduleHide()
+  }
 }
 
 function onError(): void {
@@ -261,9 +277,10 @@ function handleTouchStart(event: TouchEvent): void {
   onTouchStart(event)
 }
 
-function handleSurfaceClick(): void {
+function handleSurfaceClick(event: MouseEvent): void {
+  // 刚触摸结束后的 ghost click 忽略
   if (Date.now() - lastTouchAt < 800) return
-  store.toggleControls()
+  handleClick(event)
 }
 
 // ---------------------------------------------------------------------------
@@ -338,11 +355,14 @@ defineExpose({ play, togglePlay, seekTo })
       @touchmove.prevent="onTouchMove"
       @touchend="onTouchEnd"
       @click="handleSurfaceClick"
-      @dblclick.prevent="toggleFullscreen"
     />
 
     <!-- 手势反馈 -->
-    <GestureOverlay :feedback="feedback" :seek-flash="seekFlash" />
+    <GestureOverlay
+      :feedback="feedback"
+      :seek-flash="seekFlash"
+      :double-tap-hint="doubleTapHint"
+    />
 
     <!-- 控件 -->
     <PlayerControls

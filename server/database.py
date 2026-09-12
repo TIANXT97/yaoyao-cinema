@@ -289,6 +289,7 @@ class Database:
         await self._conn.execute("PRAGMA journal_mode = WAL;")
         await self._conn.execute("PRAGMA foreign_keys = ON;")
         await self._conn.execute("PRAGMA busy_timeout = 5000;")
+        await self._conn.execute("PRAGMA auto_vacuum = INCREMENTAL;")
         await self._conn.commit()
         return self._conn
 

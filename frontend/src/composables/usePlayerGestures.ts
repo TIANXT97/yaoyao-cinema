@@ -20,6 +20,16 @@ import { clamp, formatClock } from '@/utils/format'
 export type GestureKind = 'none' | 'seek' | 'volume' | 'brightness'
 export type SeekFlash = 'back' | 'forward' | null
 
+/** 双击快进/快退居中动画提示数据 */
+export interface DoubleTapHint {
+  visible: boolean
+  label: string
+  /** 'left' | 'right' 标识双击区域 */
+  side: 'left' | 'right'
+  /** 用于触发新动画的递增 key */
+  key: number
+}
+
 export interface GestureFeedback {
   kind: GestureKind
   /** 归一化数值（音量 / 亮度为 0~1；快进为秒数，可正可负）。 */
@@ -45,7 +55,8 @@ export interface PlayerGestureOptions {
   onActivity?: () => void
 }
 
-const DOUBLE_TAP_MS = 280
+/** 单击/双击判定窗口（毫秒）。 */
+const DOUBLE_TAP_MS = 300
 const MOVE_THRESHOLD = 10
 const SEEK_SECONDS_PER_PX = 0.5
 
@@ -58,6 +69,14 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
   })
   const seekFlash = ref<SeekFlash>(null)
 
+  /** 双击快进/快退的居中动画提示 */
+  const doubleTapHint = ref<DoubleTapHint>({
+    visible: false,
+    label: '',
+    side: 'right',
+    key: 0,
+  })
+
   let startX = 0
   let startY = 0
   let startVolume = 1
@@ -66,10 +85,18 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
   let mode: 'none' | 'horizontal' | 'vertical' = 'none'
   let moved = false
   let lastTapAt = 0
+  let lastTapX = 0
   let singleTapTimer: ReturnType<typeof setTimeout> | null = null
   let feedbackTimer: ReturnType<typeof setTimeout> | null = null
   let flashTimer: ReturnType<typeof setTimeout> | null = null
+  let hintTimer: ReturnType<typeof setTimeout> | null = null
   let pendingSeek = 0
+  let hintKeyCounter = 0
+
+  // Mouse click decoupling
+  let lastMouseClickAt = 0
+  let lastMouseClickX = 0
+  let mouseClickTimer: ReturnType<typeof setTimeout> | null = null
 
   function clearFeedback(): void {
     feedback.value = { kind: 'none', value: 0, label: '', visible: false }
@@ -96,6 +123,21 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
     }, 520)
   }
 
+  /** 显示居中的 ±10s 动画提示 */
+  function showDoubleTapHint(side: 'left' | 'right'): void {
+    hintKeyCounter += 1
+    doubleTapHint.value = {
+      visible: true,
+      label: side === 'right' ? `+${SEEK_STEP}s` : `-${SEEK_STEP}s`,
+      side,
+      key: hintKeyCounter,
+    }
+    if (hintTimer) clearTimeout(hintTimer)
+    hintTimer = setTimeout(() => {
+      doubleTapHint.value = { ...doubleTapHint.value, visible: false }
+    }, 800)
+  }
+
   function getZone(clientX: number): 'left' | 'right' {
     const el = options.video()
     if (!el) return 'right'
@@ -108,11 +150,7 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
     const tapZone = getZone(clientX)
     const delta = tapZone === 'left' ? -SEEK_STEP : SEEK_STEP
     options.seekBy(delta)
-    showFeedback(
-      'seek',
-      delta,
-      delta > 0 ? `前进 ${SEEK_STEP} 秒` : `后退 ${SEEK_STEP} 秒`,
-    )
+    showDoubleTapHint(tapZone)
     flashSeek(delta > 0 ? 'forward' : 'back')
   }
 
@@ -196,12 +234,13 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
       return
     }
 
-    // 单击 / 双击判定
+    // 单击 / 双击判定（精准解耦，300ms 窗口）
     const touch = event.changedTouches[0]
     const clientX = touch ? touch.clientX : startX
     const now = Date.now()
 
     if (now - lastTapAt < DOUBLE_TAP_MS) {
+      // 双击命中 —— 取消排队中的单击回调
       lastTapAt = 0
       if (singleTapTimer) {
         clearTimeout(singleTapTimer)
@@ -212,9 +251,38 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
     }
 
     lastTapAt = now
+    lastTapX = clientX
     if (singleTapTimer) clearTimeout(singleTapTimer)
     singleTapTimer = setTimeout(() => {
       singleTapTimer = null
+      options.toggleControls()
+    }, DOUBLE_TAP_MS)
+  }
+
+  /**
+   * 鼠标 click 处理（桌面端）—— 同样做 300ms 单/双击解耦。
+   * 由 CustomPlayer 的 @click 调用（已排除 ghost click）。
+   */
+  function handleClick(event: MouseEvent): void {
+    const now = Date.now()
+    const clientX = event.clientX
+
+    if (now - lastMouseClickAt < DOUBLE_TAP_MS) {
+      // 双击
+      lastMouseClickAt = 0
+      if (mouseClickTimer) {
+        clearTimeout(mouseClickTimer)
+        mouseClickTimer = null
+      }
+      handleDoubleTap(clientX)
+      return
+    }
+
+    lastMouseClickAt = now
+    lastMouseClickX = clientX
+    if (mouseClickTimer) clearTimeout(mouseClickTimer)
+    mouseClickTimer = setTimeout(() => {
+      mouseClickTimer = null
       options.toggleControls()
     }, DOUBLE_TAP_MS)
   }
@@ -223,14 +291,18 @@ export function usePlayerGestures(options: PlayerGestureOptions) {
     if (singleTapTimer) clearTimeout(singleTapTimer)
     if (feedbackTimer) clearTimeout(feedbackTimer)
     if (flashTimer) clearTimeout(flashTimer)
+    if (hintTimer) clearTimeout(hintTimer)
+    if (mouseClickTimer) clearTimeout(mouseClickTimer)
   })
 
   return {
     feedback: feedback as Ref<GestureFeedback>,
     seekFlash: seekFlash as Ref<SeekFlash>,
+    doubleTapHint: doubleTapHint as Ref<DoubleTapHint>,
     onTouchStart,
     onTouchMove,
     onTouchEnd,
+    handleClick,
     clearFeedback,
   }
 }

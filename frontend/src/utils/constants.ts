@@ -18,7 +18,7 @@ export const SEEK_STEP = 10
 export const PROGRESS_REPORT_INTERVAL = 10_000
 
 /** 播放器：控件自动隐藏延时（毫秒）。 */
-export const CONTROLS_HIDE_DELAY = 3_200
+export const CONTROLS_HIDE_DELAY = 4_000
 
 /** 搜索防抖延时（毫秒）。 */
 export const SEARCH_DEBOUNCE = 300

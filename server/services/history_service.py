@@ -65,12 +65,35 @@ async def report_progress(
     is_new_session = latest is None or _to_completed(latest.get("completed")) == 1
     new_play_count = int(video.get("play_count") or 0) + (1 if is_new_session else 0)
 
-    history_id = str(uuid4())
+    # 智能防膨胀：若该视频在最近 2 小时内已有记录且未看完，直接原地更新进度，绝不疯狂插入废记录！
+    recent_entry = await db.fetchone(
+        "SELECT id, completed FROM watch_history WHERE video_id = ? AND watched_at >= datetime('now', '-2 hours') "
+        "ORDER BY watched_at DESC, rowid DESC LIMIT 1",
+        (video_id,),
+    )
+
+    if recent_entry and _to_completed(recent_entry.get("completed")) == 0:
+        history_id = recent_entry["id"]
+        await db.execute(
+            "UPDATE watch_history SET position = ?, duration = ?, progress = ?, completed = ?, watched_at = datetime('now'), device = ? "
+            "WHERE id = ?",
+            (position, duration, progress, completed, device, history_id),
+        )
+    else:
+        history_id = str(uuid4())
+        await db.execute(
+            "INSERT INTO watch_history "
+            "(id, video_id, position, duration, progress, completed, watched_at, device) "
+            "VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)",
+            (history_id, video_id, position, duration, progress, completed, device),
+        )
+
+    # 历史记录每部影片最多只保留最新 5 条，彻底杜绝单表无限膨胀
     await db.execute(
-        "INSERT INTO watch_history "
-        "(id, video_id, position, duration, progress, completed, watched_at, device) "
-        "VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)",
-        (history_id, video_id, position, duration, progress, completed, device),
+        "DELETE FROM watch_history WHERE video_id = ? AND id NOT IN ("
+        "  SELECT id FROM watch_history WHERE video_id = ? ORDER BY watched_at DESC, rowid DESC LIMIT 5"
+        ")",
+        (video_id, video_id),
     )
     await db.update_video(
         video_id,
