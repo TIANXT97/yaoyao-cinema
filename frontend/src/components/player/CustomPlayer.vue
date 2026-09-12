@@ -74,44 +74,34 @@ function checkAirplay() {
  *   系统级 AirPlay 投屏图标，无任何限制。
  */
 function triggerAirplay(): void {
-  const el = videoEl.value as HTMLVideoElement & {
-    webkitShowPlaybackTargetPicker?: () => void
-    webkitEnterFullscreen?: () => void
-    remote?: { prompt: () => Promise<void> }
-  }
+  const el = videoEl.value as any
   if (!el) return
 
-  // 1️⃣ iOS PWA 独立模式：WebKit 经常拒绝 picker，直接走原生全屏降级
-  if (isIOS() && isStandalonePWA()) {
-    if (typeof el.webkitEnterFullscreen === 'function') {
+  // 确保视频已经起播，未起播时 Safari 经常静默拒绝 AirPlay 握手
+  if (el.paused) {
+    el.play().catch(() => {})
+  }
+
+  // 策略 A：如果是 iOS / iPadOS 设备，最直接、最稳妥的就是直接切入系统原生全屏播放器
+  // iOS 原生播放器顶栏自带系统级 AirPlay 图标，100% 不会被任何网页层级遮挡！
+  if (typeof el.webkitEnterFullscreen === 'function') {
+    try {
       el.webkitEnterFullscreen()
-      showAirplayHint('已进入原生播放器，请点击顶栏 AirPlay 图标投屏')
-      return
+      showAirplayHint('已进入原生全屏，点击屏幕上方 AirPlay 图标即可投屏')
+    } catch (e) {
+      console.warn('webkitEnterFullscreen error:', e)
     }
   }
 
-  // 2️⃣ 优先尝试 WebKit 原生 Picker（Safari / 非 PWA iOS）
+  // 策略 B：尝试呼出系统 Picker 弹窗
   if (typeof el.webkitShowPlaybackTargetPicker === 'function') {
     try {
       el.webkitShowPlaybackTargetPicker()
-      return
-    } catch {
-      // 某些情况下可能抛异常，继续降级
+    } catch (e) {
+      console.warn('webkitShowPlaybackTargetPicker failed:', e)
     }
-  }
-
-  // 3️⃣ Remote Playback API（Chrome / Edge 等）
-  if (el.remote && typeof el.remote.prompt === 'function') {
-    el.remote.prompt().catch(() => {
-      // 用户取消或不支持，静默忽略
-    })
-    return
-  }
-
-  // 4️⃣ 最终降级：iOS 原生全屏（系统播放器自带 AirPlay 图标）
-  if (typeof el.webkitEnterFullscreen === 'function') {
-    el.webkitEnterFullscreen()
-    showAirplayHint('已进入原生播放器，请点击顶栏 AirPlay 图标投屏')
+  } else if (el.remote && typeof el.remote.prompt === 'function') {
+    el.remote.prompt().catch(() => {})
   }
 }
 
