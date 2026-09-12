@@ -12,10 +12,30 @@ import {
   SkipBack,
   SkipForward,
 } from 'lucide-vue-next'
+import { inject } from 'vue'
 
 import ProgressSlider from '@/components/player/ProgressSlider.vue'
 import { SEEK_STEP } from '@/utils/constants'
 import { formatClock } from '@/utils/format'
+
+/**
+ * ★ iOS WebKit AirPlay 同步手势链路：
+ * triggerAirplay 通过 provide/inject 从 CustomPlayer 直接注入，
+ * 由按钮 @click 同步调用，绝不经过 Vue emit 异步链。
+ * 这确保 webkitShowPlaybackTargetPicker() 始终在用户手势的
+ * 同步调用栈内触发，iOS WebKit 不会静默拒绝。
+ */
+const injectedTriggerAirplay = inject<(() => void) | null>('triggerAirplay', null)
+
+function onAirplayClick(): void {
+  if (injectedTriggerAirplay) {
+    // ★ 同步调用！用户点击 → @click → onAirplayClick → triggerAirplay → webkitShowPlaybackTargetPicker
+    //   全程在同一个同步调用栈内，满足 iOS WebKit User Gesture 要求
+    injectedTriggerAirplay()
+  } else {
+    emit('airplay')
+  }
+}
 
 withDefaults(
   defineProps<{
@@ -67,7 +87,7 @@ const emit = defineEmits<{
           type="button"
           class="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors duration-150 ease-yy hover:text-white"
           aria-label="无线投屏"
-          @click="emit('airplay')"
+          @click="onAirplayClick"
         >
           <Airplay :size="19" :stroke-width="1.6" />
         </button>

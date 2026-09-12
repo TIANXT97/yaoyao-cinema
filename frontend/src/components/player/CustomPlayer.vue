@@ -9,7 +9,7 @@
  * - 单击切换控件，控件 4s 自动隐藏（拖动进度条时绝不隐藏）；
  * - 续播定位 + 每 10s 自动进度上报（暂停 / 离开强制上报）。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 
 import { streamUrl } from '@/api/client'
 import GestureOverlay from '@/components/player/GestureOverlay.vue'
@@ -18,6 +18,7 @@ import { usePlayerGestures } from '@/composables/usePlayerGestures'
 import { usePlayerStore } from '@/stores/player'
 import { CONTROLS_HIDE_DELAY, PLAYBACK_RATES } from '@/utils/constants'
 import { clamp } from '@/utils/format'
+import { isIOS, isStandalonePWA } from '@/utils/platform'
 
 const props = withDefaults(
   defineProps<{
@@ -43,25 +44,79 @@ const container = ref<HTMLElement | null>(null)
 
 const canAirplay = ref(true)
 
+/** AirPlay 降级提示：PWA 模式下弹出原生全屏时的引导文字 */
+const airplayHint = ref('')
+let airplayHintTimer: ReturnType<typeof setTimeout> | null = null
+
+function showAirplayHint(msg: string): void {
+  airplayHint.value = msg
+  if (airplayHintTimer) clearTimeout(airplayHintTimer)
+  airplayHintTimer = setTimeout(() => {
+    airplayHint.value = ''
+  }, 4000)
+}
+
 function checkAirplay() {
   // 默认常驻显示投屏图标，绝不因为异步事件丢失而隐藏
   canAirplay.value = true
 }
 
-function triggerAirplay() {
-  const el = videoEl.value as any
+/**
+ * triggerAirplay —— 唤起 AirPlay 投屏菜单。
+ *
+ * ★ iOS WebKit 铁律：webkitShowPlaybackTargetPicker() 必须在用户物理
+ *   点击事件的「同步调用栈」中触发。因此此函数通过 provide/inject 直接
+ *   注入 PlayerControls，由按钮 @click 同步调用，绝不经过 Vue emit 异步链。
+ *
+ * PWA Standalone 降级：
+ *   iOS PWA 脱壳模式下 WebKit 可能拒绝弹出 Picker。
+ *   此时降级到 webkitEnterFullscreen() —— iOS 原生全屏播放器顶栏自带
+ *   系统级 AirPlay 投屏图标，无任何限制。
+ */
+function triggerAirplay(): void {
+  const el = videoEl.value as HTMLVideoElement & {
+    webkitShowPlaybackTargetPicker?: () => void
+    webkitEnterFullscreen?: () => void
+    remote?: { prompt: () => Promise<void> }
+  }
   if (!el) return
-  if (typeof el.webkitShowPlaybackTargetPicker === 'function') {
-    el.webkitShowPlaybackTargetPicker()
-  } else if (el.remote && typeof el.remote.prompt === 'function') {
-    el.remote.prompt().catch(() => {})
-  } else {
-    // 若环境不支持直接弹窗，尝试调用系统全屏播放（iOS系统播放器自带投屏图标）
+
+  // 1️⃣ iOS PWA 独立模式：WebKit 经常拒绝 picker，直接走原生全屏降级
+  if (isIOS() && isStandalonePWA()) {
     if (typeof el.webkitEnterFullscreen === 'function') {
       el.webkitEnterFullscreen()
+      showAirplayHint('已进入原生播放器，请点击顶栏 AirPlay 图标投屏')
+      return
     }
   }
+
+  // 2️⃣ 优先尝试 WebKit 原生 Picker（Safari / 非 PWA iOS）
+  if (typeof el.webkitShowPlaybackTargetPicker === 'function') {
+    try {
+      el.webkitShowPlaybackTargetPicker()
+      return
+    } catch {
+      // 某些情况下可能抛异常，继续降级
+    }
+  }
+
+  // 3️⃣ Remote Playback API（Chrome / Edge 等）
+  if (el.remote && typeof el.remote.prompt === 'function') {
+    el.remote.prompt().catch(() => {
+      // 用户取消或不支持，静默忽略
+    })
+    return
+  }
+
+  // 4️⃣ 最终降级：iOS 原生全屏（系统播放器自带 AirPlay 图标）
+  if (typeof el.webkitEnterFullscreen === 'function') {
+    el.webkitEnterFullscreen()
+    showAirplayHint('已进入原生播放器，请点击顶栏 AirPlay 图标投屏')
+  }
 }
+
+// ★ 通过 provide 将 triggerAirplay 直接注入子组件，保持同步调用栈
+provide('triggerAirplay', triggerAirplay)
 
 const videoEl = ref<HTMLVideoElement | null>(null)
 
@@ -323,6 +378,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearHideTimer()
+  if (airplayHintTimer) clearTimeout(airplayHintTimer)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   videoEl.value?.pause()
   void store.reportProgress(true)
@@ -390,10 +446,19 @@ defineExpose({ play, togglePlay, seekTo })
       :double-tap-hint="doubleTapHint"
     />
 
+    <!-- AirPlay 降级提示 Toast -->
+    <Transition name="yy-fade">
+      <div
+        v-if="airplayHint"
+        class="absolute left-1/2 top-[15%] z-40 -translate-x-1/2 rounded-xl bg-black/70 px-5 py-3 text-center text-sm text-white shadow-2xl backdrop-blur-md"
+      >
+        {{ airplayHint }}
+      </div>
+    </Transition>
+
     <!-- 控件 -->
     <PlayerControls
-        :has-airplay="canAirplay"
-        @airplay="triggerAirplay"
+      :has-airplay="canAirplay"
       :visible="store.showControls"
       :playing="store.isPlaying"
       :current-time="store.currentTime"
