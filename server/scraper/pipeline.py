@@ -52,6 +52,9 @@ _status: dict[str, Any] = {
     "last_result": None,
 }
 
+# 批量刮削互斥锁：防止后台任务与同步调用并发重入
+_scrape_lock = asyncio.Lock()
+
 
 def get_status() -> dict[str, Any]:
     """返回当前刮削任务状态快照。"""
@@ -342,11 +345,27 @@ class ScraperPipeline:
         limit: Optional[int] = None,
         force: bool = False,
     ) -> dict[str, Any]:
-        """批量刮削指定状态的影片。"""
-        if _status["running"]:
+        """批量刮削指定状态的影片。
+
+        互斥锁保证同一时刻只有一个批量任务，重复触发直接返回当前状态。
+        """
+        if _scrape_lock.locked() or _status["running"]:
             logger.warning("已有刮削任务在运行，忽略本次触发")
             return get_status()
 
+        async with _scrape_lock:
+            return await self._scrape_all_locked(
+                statuses=statuses, limit=limit, force=force
+            )
+
+    async def _scrape_all_locked(
+        self,
+        *,
+        statuses: Iterable[str],
+        limit: Optional[int],
+        force: bool,
+    ) -> dict[str, Any]:
+        """批量刮削主体（调用方需已持有 ``_scrape_lock``）。"""
         statuses = tuple(statuses)
         videos = await self.db.get_videos_by_status(statuses, limit=limit)
 

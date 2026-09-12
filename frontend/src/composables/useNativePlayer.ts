@@ -13,7 +13,9 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { streamUrl } from '@/api/client'
+import { resolveApiBase, streamUrl } from '@/api/client'
+import { reportProgress } from '@/api/history'
+import { deviceLabel } from '@/utils/platform'
 
 export interface NativePlayResult {
   position: number
@@ -32,11 +34,42 @@ interface NativePlayerPlugin {
 
 const NativePlayer = registerPlugin<NativePlayerPlugin>('NativePlayer')
 
-/** 将流地址规整为原生可加载的绝对 URL。 */
+/**
+ * 将流地址规整为原生可加载的绝对 URL。
+ *
+ * ``streamUrl`` 已按当前 API 基址拼接：若设置页配置了绝对 NAS 地址
+ * （如 ``http://192.168.31.235:9900/api``），结果天然是完整绝对 URL，
+ * ExoPlayer 可直接直连；仅当尚未配置时才退回页面 origin（Web/PWA 场景）。
+ */
 function absoluteStreamUrl(videoId: string): string {
   const url = streamUrl(videoId)
   if (/^https?:\/\//i.test(url)) return url
+  const base = resolveApiBase()
+  if (/^https?:\/\//i.test(base)) {
+    const normalized = base.endsWith('/') ? base : `${base}/`
+    return new URL(url.replace(/^\/+/, ''), normalized).toString()
+  }
   return new URL(url, window.location.origin).toString()
+}
+
+/** 原生播放结束后回传毫秒进度（与 Web 播放器单位统一）。 */
+async function reportNativeProgress(
+  videoId: string,
+  result: NativePlayResult,
+): Promise<void> {
+  const duration = Math.max(0, Math.round(result.duration ?? 0))
+  const position = Math.max(0, Math.round(result.position ?? 0))
+  if (duration <= 0 && position <= 0) return
+  try {
+    await reportProgress({
+      video_id: videoId,
+      position,
+      duration,
+      device: deviceLabel(),
+    })
+  } catch {
+    // 进度上报失败不阻断播放
+  }
 }
 
 export function useNativePlayer() {
@@ -55,10 +88,11 @@ export function useNativePlayer() {
           position: Math.max(0, Math.round(options.resumeMs ?? 0)),
           title: options.title ?? '',
         })
+        // 成功或用户主动取消都在原生侧闭环，不再跳转 Web 播放器
         if (!result.cancelled) {
-          // 进度由原生播放器回传，交由调用方按需上报
-          return
+          await reportNativeProgress(videoId, result)
         }
+        return
       } catch {
         // 原生桥接失败时静默回退到 Web 播放器，保证可用性
       }

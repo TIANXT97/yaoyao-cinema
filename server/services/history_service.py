@@ -33,14 +33,19 @@ async def report_progress(
     if video is None:
         return None
 
+    # 统一全流程毫秒：前端 position / duration 均为毫秒；
+    # videos.duration 为秒，仅在回退时显式换算，禁止直接混用
     position = max(0, int(position or 0))
-    duration = max(0, int(duration or video.get("duration") or 0))
+    duration = max(0, int(duration or 0))
+    if duration <= 0:
+        video_seconds = int(video.get("duration") or 0)
+        duration = max(0, video_seconds * 1000)
     progress = _compute_progress(position, duration)
     completed = 1 if progress >= COMPLETED_THRESHOLD else 0
 
     latest = await db.fetchone(
         "SELECT completed FROM watch_history WHERE video_id = ? "
-        "ORDER BY watched_at DESC LIMIT 1",
+        "ORDER BY watched_at DESC, rowid DESC LIMIT 1",
         (video_id,),
     )
     # 首次观看，或上次已看完后重新开始 → 播放次数 +1
@@ -70,7 +75,7 @@ async def get_resume_point(
     """最新一条历史即为续播点（ARCHITECTURE.md 2.2.7 注释）。"""
     return await db.fetchone(
         "SELECT * FROM watch_history WHERE video_id = ? "
-        "ORDER BY watched_at DESC LIMIT 1",
+        "ORDER BY watched_at DESC, rowid DESC LIMIT 1",
         (video_id,),
     )
 
@@ -80,17 +85,24 @@ async def get_recent(
 ) -> list[dict[str, Any]]:
     """最近观看列表（每部影片取最新一条历史，附带影片摘要）。"""
     limit = max(1, min(int(limit or 20), 100))
+    # watched_at 精度仅到秒，同秒多写会命中多条；用窗口函数按 video_id
+    # 取最新一条（rowid 兜底），彻底消除重复
     rows = await db.fetchall(
-        "SELECT h.*, "
+        "SELECT r.id, r.video_id, r.position, r.duration, r.progress, "
+        "       r.completed, r.watched_at, r.device, "
         "       v.title, v.bangou, v.poster_path, v.thumb_path, "
         "       v.file_size, v.duration AS video_duration, v.is_hidden "
-        "FROM watch_history h "
-        "JOIN (SELECT video_id, MAX(watched_at) AS mx FROM watch_history "
-        "      GROUP BY video_id) t "
-        "  ON h.video_id = t.video_id AND h.watched_at = t.mx "
-        "JOIN videos v ON v.id = h.video_id "
-        "WHERE v.is_hidden = 0 "
-        "ORDER BY h.watched_at DESC LIMIT ?",
+        "FROM ("
+        "    SELECT h.*, "
+        "           ROW_NUMBER() OVER ("
+        "               PARTITION BY h.video_id "
+        "               ORDER BY h.watched_at DESC, h.rowid DESC"
+        "           ) AS rn "
+        "    FROM watch_history h"
+        ") r "
+        "JOIN videos v ON v.id = r.video_id "
+        "WHERE r.rn = 1 AND v.is_hidden = 0 "
+        "ORDER BY r.watched_at DESC LIMIT ?",
         (limit,),
     )
     return rows

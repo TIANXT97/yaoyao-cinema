@@ -7,11 +7,62 @@
 
 import type { ApiErrorPayload, QueryParams } from '@/types/api'
 
-const RAW_BASE = import.meta.env.VITE_API_BASE?.trim()
-const API_BASE = (RAW_BASE && RAW_BASE.length > 0 ? RAW_BASE : '/api').replace(
-  /\/+$/,
-  '',
-)
+/** localStorage 中持久化的自定义 API 基址键名。 */
+export const API_BASE_STORAGE_KEY = 'yaoyao.apiBase'
+
+/** 规范化基址：去空白、去尾部斜杠；空串视为未配置。 */
+function normalizeBase(value: string | null | undefined): string {
+  const raw = value?.trim()
+  if (!raw) return ''
+  return raw.replace(/\/+$/, '')
+}
+
+/** 环境变量注入的兜底基址（构建期注入一次）。 */
+const ENV_BASE = normalizeBase(import.meta.env.VITE_API_BASE)
+
+let cachedApiBase: string | null = null
+
+/**
+ * 解析 API 基址，优先级：
+ * 1. ``localStorage['yaoyao.apiBase']``（用户在设置页填写，适配安卓 / 跨设备）；
+ * 2. ``import.meta.env.VITE_API_BASE``（构建期注入）；
+ * 3. 同源相对路径 ``/api``。
+ */
+export function resolveApiBase(): string {
+  if (cachedApiBase !== null) return cachedApiBase
+
+  let stored: string | null = null
+  if (typeof window !== 'undefined') {
+    try {
+      stored = window.localStorage.getItem(API_BASE_STORAGE_KEY)
+    } catch {
+      stored = null
+    }
+  }
+  cachedApiBase = normalizeBase(stored) || ENV_BASE || '/api'
+  return cachedApiBase
+}
+
+/**
+ * 设置 / 清除自定义 API 基址并持久化。
+ * 传入空串或 null 时回退到环境变量 / 相对路径。
+ */
+export function setApiBase(value: string | null | undefined): string {
+  const normalized = normalizeBase(value)
+  if (typeof window !== 'undefined') {
+    try {
+      if (normalized) {
+        window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized)
+      } else {
+        window.localStorage.removeItem(API_BASE_STORAGE_KEY)
+      }
+    } catch {
+      // 隐私模式 / 配额异常时忽略，内存态仍然生效
+    }
+  }
+  cachedApiBase = normalized || ENV_BASE || '/api'
+  return cachedApiBase
+}
 
 /** 统一 API 错误。 */
 export class ApiError extends Error {
@@ -45,7 +96,7 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
 export function buildUrl(path: string, query?: QueryParams): string {
   const base = /^https?:\/\//i.test(path)
     ? path
-    : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`
+    : `${resolveApiBase()}${path.startsWith('/') ? path : `/${path}`}`
 
   if (!query) return base
 
@@ -161,9 +212,9 @@ export const http = {
     request<T>(path, { ...options, method: 'DELETE' }),
 }
 
-/** API 基础路径（只读）。 */
+/** API 基础路径（实时解析，支持运行时切换）。 */
 export function apiBase(): string {
-  return API_BASE
+  return resolveApiBase()
 }
 
 /** 将 MEDIA_ROOT 相对路径安全编码为图片 URL。 */

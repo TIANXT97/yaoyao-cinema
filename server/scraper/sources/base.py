@@ -33,7 +33,7 @@ import random
 import re
 from html import unescape
 from typing import Any, Iterable, Optional, Sequence
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 from ...utils.logger import get_logger
 
@@ -79,6 +79,19 @@ USER_AGENTS: tuple[str, ...] = (
 
 class ScraperError(RuntimeError):
     """刮削源通用异常。"""
+
+def mirror_url(url: str, mirror: str) -> str:
+    """用镜像站替换原站的 scheme + netloc，保留 path / query / fragment。
+
+    旧实现 ``urljoin(mirror, url.split("//", 1)[-1])`` 会把原站 host 误拼进
+    路径（如 ``https://mirror/javbus.com/xxx``），导致反爬兜底全部失败。
+    """
+    source = urlsplit(url)
+    candidate = mirror if "://" in mirror else f"//{mirror.lstrip('/')}"
+    target = urlsplit(candidate)
+    netloc = target.netloc or target.path
+    scheme = target.scheme or source.scheme or "https"
+    return urlunsplit((scheme, netloc, source.path, source.query, source.fragment))
 
 
 class ScraperSource(abc.ABC):
@@ -253,7 +266,7 @@ class ScraperSource(abc.ABC):
         except httpx.HTTPError as exc:
             # 反爬兜底：尝试镜像站点
             for mirror in self.mirrors:
-                alt = urljoin(mirror.rstrip("/") + "/", url.split("//", 1)[-1])
+                alt = mirror_url(url, mirror)
                 try:
                     response = await client.get(alt, **request_kwargs)
                     response.raise_for_status()
@@ -606,6 +619,7 @@ __all__ = [
     "USER_AGENTS",
     "ScraperError",
     "ScraperSource",
+    "mirror_url",
     "empty_result",
     "normalize_result",
     "normalize_date",

@@ -143,7 +143,7 @@ async def get_video_detail(
 
     resume = await db.fetchone(
         "SELECT position, duration, progress FROM watch_history "
-        "WHERE video_id = ? ORDER BY watched_at DESC LIMIT 1",
+        "WHERE video_id = ? ORDER BY watched_at DESC, rowid DESC LIMIT 1",
         (video_id,),
     )
 

@@ -11,14 +11,17 @@ import LazyImage from '@/components/common/LazyImage.vue'
 import ProgressBar from '@/components/media/ProgressBar.vue'
 import TagPill from '@/components/media/TagPill.vue'
 import VideoGrid from '@/components/media/VideoGrid.vue'
+import { useNativePlayer } from '@/composables/useNativePlayer'
 import { useHistoryStore } from '@/stores/history'
 import { useVideoStore } from '@/stores/video'
+import type { RecentRecord } from '@/types/history'
 import { QUICK_FILTERS, type Video } from '@/types/video'
 import { displayTitle, formatClock, formatRelativeTime } from '@/utils/format'
 
 const router = useRouter()
 const videoStore = useVideoStore()
 const historyStore = useHistoryStore()
+const { playVideo } = useNativePlayer()
 
 const activeQuick = ref('all')
 
@@ -35,8 +38,11 @@ function openVideo(video: Video): void {
   void router.push({ name: 'VideoDetail', params: { id: video.id } })
 }
 
-function resumePlay(videoId: string): void {
-  void router.push({ name: 'Player', params: { id: videoId } })
+function resumePlay(record: RecentRecord): void {
+  void playVideo(record.video_id, {
+    title: record.title ?? '',
+    resumeMs: record.position ?? 0,
+  })
 }
 
 async function applyQuick(key: string): Promise<void> {
@@ -96,7 +102,7 @@ onMounted(async () => {
           :key="record.video_id"
           type="button"
           class="group w-32 shrink-0 text-left sm:w-40"
-          @click="resumePlay(record.video_id)"
+          @click="resumePlay(record)"
         >
           <div class="relative overflow-hidden rounded-lg bg-paper-mute shadow-soft">
             <LazyImage

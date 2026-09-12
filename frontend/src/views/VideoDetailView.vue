@@ -17,6 +17,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { mediaUrl } from '@/api/client'
 import { listVideos } from '@/api/videos'
+import { useNativePlayer } from '@/composables/useNativePlayer'
 import EmptyState from '@/components/common/EmptyState.vue'
 import LazyImage from '@/components/common/LazyImage.vue'
 import ActorCard from '@/components/media/ActorCard.vue'
@@ -38,6 +39,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const store = useVideoStore()
+const { playVideo } = useNativePlayer()
 
 const id = computed(() => String(route.params.id))
 const detail = computed(() => store.currentVideo)
@@ -65,8 +67,13 @@ const metaItems = computed(() => {
 })
 
 function play(): void {
-  if (!detail.value) return
-  void router.push({ name: 'Player', params: { id: detail.value.id } })
+  const video = detail.value
+  if (!video) return
+  // 原生环境走 ExoPlayer 硬解直出，Web/PWA 回退到 CustomPlayer 路由
+  void playVideo(video.id, {
+    title: video.title ?? '',
+    resumeMs: video.resume_position ?? 0,
+  })
 }
 
 async function toggleFavorite(): Promise<void> {

@@ -8,11 +8,14 @@ import {
   Database,
   FolderOpen,
   RefreshCw,
+  RotateCcw,
   ScanLine,
+  Server,
   Sparkles,
 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
+import { apiBase, setApiBase } from '@/api/client'
 import {
   getScraperStatus,
   scrapeAll,
@@ -30,6 +33,35 @@ const scanning = ref(false)
 const scraping = ref(false)
 const notice = ref<string | null>(null)
 const error = ref<string | null>(null)
+
+// NAS 服务器地址（API 基址）设置
+const apiBaseInput = ref(apiBase())
+const apiBaseSaved = ref(false)
+let apiBaseTimer: ReturnType<typeof setTimeout> | null = null
+
+function flashApiBaseSaved(): void {
+  apiBaseSaved.value = true
+  if (apiBaseTimer) clearTimeout(apiBaseTimer)
+  apiBaseTimer = setTimeout(() => {
+    apiBaseSaved.value = false
+  }, 2000)
+}
+
+function onSaveApiBase(): void {
+  const normalized = setApiBase(apiBaseInput.value)
+  apiBaseInput.value = normalized
+  error.value = null
+  notice.value = `API 基址已更新为 ${normalized}`
+  flashApiBaseSaved()
+}
+
+function onResetApiBase(): void {
+  const normalized = setApiBase('')
+  apiBaseInput.value = normalized
+  error.value = null
+  notice.value = `API 基址已重置为默认（${normalized}）`
+  flashApiBaseSaved()
+}
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -126,6 +158,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (apiBaseTimer) clearTimeout(apiBaseTimer)
 })
 </script>
 
@@ -281,6 +314,55 @@ onBeforeUnmount(() => {
           <div>
             <p class="text-ink-faint">系列</p>
             <p class="mt-1 text-ink">{{ stats?.series ?? 0 }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- NAS 服务器地址 -->
+      <div class="mt-6 rounded-xl border border-line p-6">
+        <h2 class="text-sm text-ink">NAS 服务器地址</h2>
+        <p class="mt-1.5 text-xs leading-relaxed text-ink-faint">
+          安卓 App 或跨设备访问时，请填写 NAS 的完整 API 基址（例如
+          <span class="font-mono text-ink-soft">http://192.168.31.235:9900/api</span>）。
+          PWA 同源部署可留空，默认使用相对路径
+          <span class="font-mono text-ink-soft">/api</span>。修改后立即生效并永久保存。
+        </p>
+        <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div class="relative flex-1">
+            <Server
+              :size="15"
+              :stroke-width="1.5"
+              class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-mute"
+            />
+            <input
+              v-model="apiBaseInput"
+              type="url"
+              inputmode="url"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="http://192.168.31.235:9900/api"
+              class="w-full rounded-lg border border-line bg-paper py-2.5 pr-3 pl-9 font-mono text-xs text-ink transition-colors duration-150 ease-yy placeholder:text-ink-mute focus:border-accent focus:outline-none"
+              @keyup.enter="onSaveApiBase"
+            />
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-sm text-ink-soft transition-colors duration-150 ease-yy hover:border-accent/50 hover:text-ink"
+              @click="onSaveApiBase"
+            >
+              <Check v-if="apiBaseSaved" :size="16" :stroke-width="1.6" class="text-accent" />
+              <Server v-else :size="16" :stroke-width="1.5" />
+              保存
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-sm text-ink-faint transition-colors duration-150 ease-yy hover:border-accent/50 hover:text-ink"
+              @click="onResetApiBase"
+            >
+              <RotateCcw :size="15" :stroke-width="1.5" />
+              重置
+            </button>
           </div>
         </div>
       </div>

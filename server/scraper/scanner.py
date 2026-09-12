@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -34,8 +35,27 @@ _status: dict[str, Any] = {
 }
 
 
+# 扫描互斥锁：防止并发触发导致状态竞争与重复入库
+_scan_lock = asyncio.Lock()
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _empty_result(**overrides: Any) -> dict[str, Any]:
+    """返回字段齐全的扫描结果，保证 ``ScanResult`` 校验永不失败。"""
+    result: dict[str, Any] = {
+        "discovered": 0,
+        "added": 0,
+        "skipped": 0,
+        "missing": 0,
+        "media_root": str(config.MEDIA_ROOT),
+        "started_at": None,
+        "finished_at": None,
+    }
+    result.update(overrides)
+    return result
 
 
 def get_status() -> dict[str, Any]:
@@ -157,13 +177,33 @@ async def _build_record(video_path: Path) -> dict[str, Any]:
 async def scan_media_library(
     database: Optional[Database] = None,
 ) -> dict[str, Any]:
-    """扫描媒体库，返回汇总结果。"""
+    """扫描媒体库，返回汇总结果。
+
+    通过模块级互斥锁保证同一时刻仅有一个扫描在跑；重复触发时立即返回
+    一份**字段齐全**的当前 / 上次结果，避免 ``ScanResult`` 校验 500。
+    """
     database = database or default_db
 
-    if _status["running"]:
+    # asyncio 单线程：locked() 与 async with 之间无 await，判定是原子的
+    if _scan_lock.locked() or _status["running"]:
         logger.warning("已有扫描任务在运行，忽略本次触发")
-        return dict(_status.get("last_result") or {})
+        last = _status.get("last_result") or {}
+        return _empty_result(
+            started_at=_status.get("started_at"),
+            finished_at=_status.get("finished_at"),
+            **{
+                key: last[key]
+                for key in ("discovered", "added", "skipped", "missing", "media_root")
+                if key in last
+            },
+        )
 
+    async with _scan_lock:
+        return await _scan_locked(database)
+
+
+async def _scan_locked(database: Database) -> dict[str, Any]:
+    """真正的扫描主体（调用方需已持有 ``_scan_lock``）。"""
     started_at = _now()
     _status.update(running=True, started_at=started_at, finished_at=None)
 
@@ -200,15 +240,14 @@ async def scan_media_library(
         if missing:
             await database.mark_missing(sorted(missing))
 
-        result = {
-            "discovered": len(discovered),
-            "added": added,
-            "skipped": skipped,
-            "missing": len(missing),
-            "media_root": str(config.MEDIA_ROOT),
-            "started_at": started_at,
-            "finished_at": _now(),
-        }
+        result = _empty_result(
+            discovered=len(discovered),
+            added=added,
+            skipped=skipped,
+            missing=len(missing),
+            started_at=started_at,
+            finished_at=_now(),
+        )
         logger.info(
             "扫描完成: 发现 %d, 新增 %d, 跳过 %d, 消失 %d",
             result["discovered"],

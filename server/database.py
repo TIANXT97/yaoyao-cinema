@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS actors (
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_actors_name ON actors(name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_actors_name ON actors(name);
 
 -- 2.2.4 video_actors — 影片-演员关联
 CREATE TABLE IF NOT EXISTS video_actors (
@@ -297,8 +297,54 @@ class Database:
         """建表 + 索引 + 触发器（幂等）。"""
         await self.conn.executescript(SCHEMA_SQL)
         await self.conn.executescript(TRIGGERS_SQL)
+        await self._migrate_actor_unique_index()
         await self.conn.commit()
         logger.info("数据库表结构初始化完成: %s", self.db_path)
+
+    async def _migrate_actor_unique_index(self) -> None:
+        """确保 ``actors(name)`` 唯一，兼容历史上已存在普通索引的库。
+
+        旧库可能已经产生同名演员（并发 get_or_create 竞争所致）：先保留
+        rowid 最小者、把 ``video_actors`` 关联迁移过去，删除重复行，再重建
+        唯一索引。
+        """
+        index_rows = await self.fetchall("PRAGMA index_list('actors')")
+        already_unique = any(
+            int(row.get("unique") or 0) == 1
+            and str(row.get("name") or "") in {"idx_actors_name", "ux_actors_name"}
+            for row in index_rows
+        )
+        if already_unique:
+            return
+
+        duplicates = await self.fetchall(
+            "SELECT name, MIN(rowid) AS keep_rowid FROM actors "
+            "GROUP BY name HAVING COUNT(*) > 1"
+        )
+        for dup in duplicates:
+            keep = await self.fetchone(
+                "SELECT id FROM actors WHERE rowid = ?", (dup["keep_rowid"],)
+            )
+            if keep is None:
+                continue
+            for row in await self.fetchall(
+                "SELECT id FROM actors WHERE name = ? AND rowid <> ?",
+                (dup["name"], dup["keep_rowid"]),
+            ):
+                # 把关联迁移到保留者，冲突则忽略，再删除残留关联与重复演员
+                await self.execute(
+                    "UPDATE OR IGNORE video_actors SET actor_id = ? WHERE actor_id = ?",
+                    (keep["id"], row["id"]),
+                )
+                await self.execute(
+                    "DELETE FROM video_actors WHERE actor_id = ?", (row["id"],)
+                )
+                await self.execute("DELETE FROM actors WHERE id = ?", (row["id"],))
+
+        await self.execute("DROP INDEX IF EXISTS idx_actors_name")
+        await self.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_actors_name ON actors(name)"
+        )
 
     # ------------------------------------------------------------ 通用查询
     async def execute(
@@ -479,9 +525,10 @@ class Database:
         if isinstance(aliases, (list, tuple, set)):
             aliases = json.dumps(list(aliases), ensure_ascii=False)
         photo_path = actor_data.get("photo_path") or actor_data.get("thumb")
+        # INSERT OR IGNORE + 唯一索引：并发下不会产生同名重复演员
         await self.execute(
-            "INSERT INTO actors (id, name, name_ja, aliases, photo_path, birth_date, "
-            "measurements, cup_size, height, nationality) "
+            "INSERT OR IGNORE INTO actors (id, name, name_ja, aliases, photo_path, "
+            "birth_date, measurements, cup_size, height, nationality) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 actor_id,
@@ -496,8 +543,13 @@ class Database:
                 actor_data.get("nationality"),
             ),
         )
-        created = await self.get_actor(actor_id)
-        assert created is not None
+        created = await self.fetchone(
+            "SELECT * FROM actors WHERE name = ? LIMIT 1", (name,)
+        )
+        if created is None:
+            created = await self.get_actor(actor_id)
+        if created is None:
+            raise RuntimeError(f"演员写入失败: {name}")
         return created
 
     async def get_actor(self, actor_id: str) -> Optional[dict[str, Any]]:
@@ -518,11 +570,19 @@ class Database:
             return record
         tag_id = str(uuid4())
         await self.execute(
-            "INSERT INTO tags (id, name, name_ja, category) VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO tags (id, name, name_ja, category) "
+            "VALUES (?, ?, ?, ?)",
             (tag_id, clean, name_ja, category or "genre"),
         )
-        created = await self.fetchone("SELECT * FROM tags WHERE id = ?", (tag_id,))
-        assert created is not None
+        created = await self.fetchone(
+            "SELECT * FROM tags WHERE name = ? LIMIT 1", (clean,)
+        )
+        if created is None:
+            created = await self.fetchone(
+                "SELECT * FROM tags WHERE id = ?", (tag_id,)
+            )
+        if created is None:
+            raise RuntimeError(f"标签写入失败: {clean}")
         return created
 
     async def get_or_create_series(
@@ -537,11 +597,18 @@ class Database:
             return record
         series_id = str(uuid4())
         await self.execute(
-            "INSERT INTO series (id, name, name_ja) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO series (id, name, name_ja) VALUES (?, ?, ?)",
             (series_id, clean, name_ja),
         )
-        created = await self.fetchone("SELECT * FROM series WHERE id = ?", (series_id,))
-        assert created is not None
+        created = await self.fetchone(
+            "SELECT * FROM series WHERE name = ? LIMIT 1", (clean,)
+        )
+        if created is None:
+            created = await self.fetchone(
+                "SELECT * FROM series WHERE id = ?", (series_id,)
+            )
+        if created is None:
+            raise RuntimeError(f"系列写入失败: {clean}")
         return created
 
     async def set_video_actors(self, video_id: str, actor_ids: Sequence[str]) -> None:

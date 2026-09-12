@@ -21,6 +21,15 @@ from ..scraper import pipeline, scanner
 
 router = APIRouter(tags=["scraper"])
 
+# 后台任务强引用集合：asyncio 仅持弱引用，不保存会被 GC 静默取消
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _track_background_task(task: asyncio.Task[Any]) -> None:
+    """持有后台任务强引用，完成后自动释放。"""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 @router.post("/scraper/scan", response_model=ScanResult)
 async def trigger_scan(
     db: Database = Depends(get_db),
@@ -74,7 +83,10 @@ async def scrape_all(
         summary = await pipeline.scrape_all(statuses=status_list, limit=limit)
         return {"started": True, "sync": True, **summary}
 
-    asyncio.create_task(pipeline.scrape_all(statuses=status_list, limit=limit))
+    task = asyncio.create_task(
+        pipeline.scrape_all(statuses=status_list, limit=limit)
+    )
+    _track_background_task(task)
     # 让事件循环调度一次，确保状态已置为 running
     await asyncio.sleep(0)
     return {"started": True, "sync": False, **pipeline.get_status()}

@@ -11,12 +11,14 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import LazyImage from '@/components/common/LazyImage.vue'
 import ProgressBar from '@/components/media/ProgressBar.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
+import { useNativePlayer } from '@/composables/useNativePlayer'
 import { useHistoryStore } from '@/stores/history'
 import type { RecentRecord } from '@/types/history'
 import { displayTitle, formatClock, formatRelativeTime } from '@/utils/format'
 
 const router = useRouter()
 const historyStore = useHistoryStore()
+const { playVideo } = useNativePlayer()
 
 function groupLabel(dateKey: string): string {
   const today = new Date()
@@ -38,7 +40,10 @@ function totalSeconds(record: RecentRecord): number {
 const watchedSeconds = (record: RecentRecord): number => (record.position ?? 0) / 1000
 
 function resume(record: RecentRecord): void {
-  void router.push({ name: 'Player', params: { id: record.video_id } })
+  void playVideo(record.video_id, {
+    title: record.title ?? '',
+    resumeMs: record.position ?? 0,
+  })
 }
 
 function openDetail(record: RecentRecord): void {

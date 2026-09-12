@@ -108,6 +108,13 @@ class PlayerActivity : AppCompatActivity() {
         player?.pause()
     }
 
+    override fun finish() {
+        // 必须在 super.finish() 之前回传：ActivityResult 需在销毁前 setResult，
+        // 否则 WebView 侧的 play() Promise 会永久挂起（结果丢失）
+        sendResult()
+        super.finish()
+    }
+
     override fun onDestroy() {
         sendResult()
         player?.release()

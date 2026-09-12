@@ -282,11 +282,13 @@ class MessageResponse(ORMModel):
 
 
 class ScanResult(ORMModel):
+    """扫描结果。所有字段均带默认值，保证并发 / 空结果时也能安全序列化。"""
+
     discovered: int = 0
     added: int = 0
     skipped: int = 0
     missing: int = 0
-    media_root: str
+    media_root: str = ""
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
 
