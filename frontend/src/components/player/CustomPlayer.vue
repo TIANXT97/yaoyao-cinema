@@ -41,27 +41,24 @@ const store = usePlayerStore()
 
 const container = ref<HTMLElement | null>(null)
 
-const canAirplay = ref(false)
+const canAirplay = ref(true)
 
 function checkAirplay() {
-  const el = videoEl.value as any
-  if (el && (window as any).WebKitPlaybackTargetAvailabilityEvent) {
-    el.addEventListener('webkitplaybacktargetavailabilitychanged', (event: any) => {
-      canAirplay.value = (event.availability === 'available')
-    })
-  } else if (el && typeof el.webkitShowPlaybackTargetPicker === 'function') {
-    canAirplay.value = true
-  }
+  // 默认常驻显示投屏图标，绝不因为异步事件丢失而隐藏
+  canAirplay.value = true
 }
 
 function triggerAirplay() {
   const el = videoEl.value as any
-  if (el && typeof el.webkitShowPlaybackTargetPicker === 'function') {
+  if (!el) return
+  if (typeof el.webkitShowPlaybackTargetPicker === 'function') {
     el.webkitShowPlaybackTargetPicker()
+  } else if (el.remote && typeof el.remote.prompt === 'function') {
+    el.remote.prompt().catch(() => {})
   } else {
-    // 兼容标准 remote playback API
-    if (el && el.remote && typeof el.remote.prompt === 'function') {
-      el.remote.prompt().catch(() => {})
+    // 若环境不支持直接弹窗，尝试调用系统全屏播放（iOS系统播放器自带投屏图标）
+    if (typeof el.webkitEnterFullscreen === 'function') {
+      el.webkitEnterFullscreen()
     }
   }
 }
