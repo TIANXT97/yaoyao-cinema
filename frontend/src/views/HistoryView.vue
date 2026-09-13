@@ -2,7 +2,7 @@
 /**
  * HistoryView —— 播放历史与续播时间线。
  */
-import { Play, RefreshCw } from 'lucide-vue-next'
+import { Play, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -46,6 +46,15 @@ function resume(record: RecentRecord): void {
 
 function openDetail(record: RecentRecord): void {
   void router.push({ name: 'VideoDetail', params: { id: record.video_id } })
+}
+
+async function handleDelete(record: RecentRecord, event?: Event): Promise<void> {
+  event?.stopPropagation()
+  try {
+    await historyStore.deleteRecord(record.id)
+  } catch {
+    // 忽略或静默失败
+  }
 }
 
 const grouped = computed(() =>
@@ -150,16 +159,28 @@ onMounted(() => {
                 </div>
               </div>
 
-              <!-- 右侧：当前进度 / 总时长 与 上次观看相对时间 -->
-              <div class="shrink-0 text-right">
-                <div class="font-mono text-[11px] text-ink-soft sm:text-xs">
-                  {{ formatClock(watchedSeconds(record)) }}
-                  <span class="text-ink-mute">/</span>
-                  {{ formatClock(totalSeconds(record)) }}
+              <!-- 右侧：当前进度 / 总时长 与 上次观看相对时间 + 优雅删除按钮 -->
+              <div class="flex shrink-0 items-center gap-2 text-right">
+                <div>
+                  <div class="font-mono text-[11px] text-ink-soft sm:text-xs">
+                    {{ formatClock(watchedSeconds(record)) }}
+                    <span class="text-ink-mute">/</span>
+                    {{ formatClock(totalSeconds(record)) }}
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-ink-faint sm:text-[11px]">
+                    {{ formatRelativeTime(record.watched_at) }}
+                  </div>
                 </div>
-                <div class="mt-0.5 text-[10px] text-ink-faint sm:text-[11px]">
-                  {{ formatRelativeTime(record.watched_at) }}
-                </div>
+
+                <button
+                  type="button"
+                  class="flex h-7 w-7 items-center justify-center rounded-lg text-ink-faint transition-colors duration-150 ease-yy hover:bg-rose-50 hover:text-rose-500"
+                  aria-label="删除历史记录"
+                  title="删除记录"
+                  @click.stop="handleDelete(record, $event)"
+                >
+                  <Trash2 :size="14" :stroke-width="1.6" />
+                </button>
               </div>
             </div>
           </div>
@@ -168,3 +189,4 @@ onMounted(() => {
     </section>
   </div>
 </template>
+

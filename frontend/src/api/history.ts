@@ -30,3 +30,9 @@ export function getRecentHistory(limit = 20): Promise<RecentRecord[]> {
 export function getResumePoint(videoId: string): Promise<WatchRecord> {
   return http.get<WatchRecord>(`/history/${encodeURIComponent(videoId)}`)
 }
+
+/** `DELETE /history/{id}` 删除历史记录。 */
+export function deleteHistory(historyId: string): Promise<MessageResponse> {
+  return http.delete<MessageResponse>(`/history/${encodeURIComponent(historyId)}`)
+}
+

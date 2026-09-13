@@ -151,3 +151,36 @@ def _utcnow() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def delete_history(db: Database, history_id: str) -> bool:
+    """删除一条观看历史。若该历史所属视频属于某个系列(series_id)，则连带删除该系列的所有历史记录，彻底从历史中抹除。"""
+    row = await db.fetchone(
+        "SELECT h.video_id, v.series_id FROM watch_history h "
+        "JOIN videos v ON v.id = h.video_id WHERE h.id = ?",
+        (history_id,),
+    )
+    if not row:
+        # 尝试按 video_id 删除
+        await db.execute("DELETE FROM watch_history WHERE video_id = ?", (history_id,))
+        return True
+
+    video_id = row["video_id"]
+    series_id = row.get("series_id")
+    if series_id:
+        # 属于电视剧：整部剧在此前的观看记录全量清除
+        await db.execute(
+            "DELETE FROM watch_history WHERE video_id IN (SELECT id FROM videos WHERE series_id = ?)",
+            (series_id,),
+        )
+        await db.execute(
+            "UPDATE videos SET last_played = NULL WHERE series_id = ?",
+            (series_id,),
+        )
+    else:
+        # 单片电影/独立视频
+        await db.execute("DELETE FROM watch_history WHERE video_id = ?", (video_id,))
+        await db.execute("UPDATE videos SET last_played = NULL WHERE id = ?", (video_id,))
+
+    return True
+

@@ -2,7 +2,7 @@
 /**
  * HomeView —— 主页：继续观看 + 快速筛选 + 最新入库海报墙。
  */
-import { Play } from 'lucide-vue-next'
+import { Play, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -51,6 +51,15 @@ function resumePlay(record: RecentRecord): void {
     title: record.title ?? '',
     resumeMs: record.position ?? 0,
   })
+}
+
+async function handleDeleteHistory(record: RecentRecord, event?: Event): Promise<void> {
+  event?.stopPropagation()
+  try {
+    await historyStore.deleteRecord(record.id)
+  } catch {
+    // 忽略错误
+  }
 }
 
 async function applyQuick(key: string): Promise<void> {
@@ -110,15 +119,25 @@ onMounted(async () => {
       </div>
 
       <div class="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
-        <button
+        <div
           v-for="record in continueList"
           :key="record.video_id"
-          type="button"
-          class="group flex w-48 shrink-0 flex-col justify-between rounded-xl border border-line/70 bg-paper p-3 text-left shadow-soft transition-all duration-200 ease-yy hover:-translate-y-0.5 hover:border-accent/40 hover:bg-paper-soft hover:shadow-md sm:w-56"
+          class="group relative flex w-48 shrink-0 cursor-pointer flex-col justify-between rounded-xl border border-line/70 bg-paper p-3 text-left shadow-soft transition-all duration-200 ease-yy hover:-translate-y-0.5 hover:border-accent/40 hover:bg-paper-soft hover:shadow-md sm:w-56"
           @click="resumePlay(record)"
         >
+          <!-- 右上角悬浮删除按钮 -->
+          <button
+            type="button"
+            class="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md bg-paper/90 text-ink-faint opacity-0 shadow-sm transition-all duration-150 ease-yy hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100 z-10"
+            aria-label="删除观看历史"
+            title="删除此项记录"
+            @click.stop="handleDeleteHistory(record, $event)"
+          >
+            <Trash2 :size="12" :stroke-width="1.6" />
+          </button>
+
           <!-- 头部：标题与播放图标 -->
-          <div class="flex items-start justify-between gap-2">
+          <div class="flex items-start justify-between gap-2 pr-5">
             <div class="min-w-0 flex-1">
               <p
                 class="truncate text-[13px] font-medium text-ink transition-colors duration-150 ease-yy group-hover:text-accent"
@@ -148,9 +167,10 @@ onMounted(async () => {
               <span>{{ Math.round(record.progress * 100) }}%</span>
             </div>
           </div>
-        </button>
+        </div>
       </div>
     </section>
+
 
     <!-- 分类胶囊栏 -->
     <section class="mx-auto mt-8 max-w-[1600px] px-4 sm:px-6 lg:px-8">

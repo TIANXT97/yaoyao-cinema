@@ -5,7 +5,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import { getRecentHistory } from '@/api/history'
+import { deleteHistory, getRecentHistory } from '@/api/history'
 import type { HistoryGroup, RecentRecord } from '@/types/history'
 import { formatDate } from '@/utils/format'
 
@@ -46,6 +46,20 @@ export const useHistoryStore = defineStore('history', () => {
     )
   }
 
+  async function deleteRecord(historyId: string): Promise<void> {
+    // 乐观更新：前端列表即刻移除匹配项（按 record.id === historyId 或 record.video_id === historyId）
+    recentVideos.value = recentVideos.value.filter(
+      (record) => record.id !== historyId && record.video_id !== historyId,
+    )
+    try {
+      await deleteHistory(historyId)
+    } catch (err) {
+      // 若后端删除失败，刷新列表保证状态最终一致
+      await fetchRecent()
+      throw err
+    }
+  }
+
   function clear(): void {
     recentVideos.value = []
   }
@@ -57,7 +71,9 @@ export const useHistoryStore = defineStore('history', () => {
     empty,
     grouped,
     fetchRecent,
+    deleteRecord,
     remove,
     clear,
   }
 })
+

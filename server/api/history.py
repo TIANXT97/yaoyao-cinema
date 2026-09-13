@@ -50,3 +50,14 @@ async def get_video_history(
     if record is None:
         raise HTTPException(status_code=404, detail="暂无观看记录")
     return record
+
+
+@router.delete("/history/{history_id}", response_model=MessageResponse)
+async def delete_history(
+    history_id: str,
+    db: Database = Depends(get_db),
+) -> MessageResponse:
+    """删除观看历史。"""
+    await history_service.delete_history(db, history_id)
+    return MessageResponse(success=True, message="已删除")
+
