@@ -32,7 +32,7 @@ async def list_videos(
     favorite: Optional[bool] = Query(None),
     status: Optional[str] = Query(None),
     group_series: bool = Query(
-        False, description="剧集按系列聚合成一张海报卡片；电影保持单部展示"
+        True, description="剧集按系列聚合成一张海报卡片；电影保持单部展示"
     ),
     db: Database = Depends(get_db),
 ) -> VideoListResponse:
