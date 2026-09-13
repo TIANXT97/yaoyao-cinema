@@ -11,6 +11,8 @@ import LazyImage from '@/components/common/LazyImage.vue'
 import ProgressBar from '@/components/media/ProgressBar.vue'
 import TagPill from '@/components/media/TagPill.vue'
 import VideoGrid from '@/components/media/VideoGrid.vue'
+import CategoryNav from '@/components/browse/CategoryNav.vue'
+
 import { useNativePlayer } from '@/composables/useNativePlayer'
 import { useHistoryStore } from '@/stores/history'
 import { useVideoStore } from '@/stores/video'
@@ -24,6 +26,14 @@ const historyStore = useHistoryStore()
 const { playVideo } = useNativePlayer()
 
 const activeQuick = ref('all')
+const activeCategory = ref('all')
+
+async function onCategoryChange(cat: string): Promise<void> {
+  activeCategory.value = cat
+  videoStore.setFilters({ category: cat === 'all' ? undefined : cat })
+  await videoStore.fetchVideos(true)
+}
+
 
 const continueList = computed(() => historyStore.recentVideos.slice(0, 12))
 const progressMap = computed(() => {
@@ -134,8 +144,13 @@ onMounted(async () => {
       </div>
     </section>
 
+    <!-- 分类胶囊栏 -->
+    <section class="mx-auto mt-8 max-w-[1600px] px-4 sm:px-6 lg:px-8">
+      <CategoryNav v-model="activeCategory" @change="onCategoryChange" />
+    </section>
+
     <!-- 最新入库 -->
-    <section class="mx-auto mt-12 max-w-[1600px] px-4 sm:px-6 lg:px-8">
+    <section class="mx-auto mt-6 max-w-[1600px] px-4 sm:px-6 lg:px-8">
       <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-base text-ink">最新入库</h2>
         <div class="flex items-center gap-2 overflow-x-auto no-scrollbar">

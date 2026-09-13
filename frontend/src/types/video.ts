@@ -75,6 +75,8 @@ export type SortOrder = 'asc' | 'desc'
 
 /** 列表筛选状态（映射为 `/api/videos` 查询参数）。 */
 export interface VideoFilters {
+  category?: string
+
   sort: SortField
   order: SortOrder
   search: string

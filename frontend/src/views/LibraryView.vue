@@ -6,6 +6,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { listTags } from '@/api/tags'
+import CategoryNav from '@/components/browse/CategoryNav.vue'
 import FilterBar from '@/components/browse/FilterBar.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import VideoGrid from '@/components/media/VideoGrid.vue'
@@ -18,6 +19,14 @@ const videoStore = useVideoStore()
 
 const tags = ref<Tag[]>([])
 const activeQuick = ref('all')
+const activeCategory = ref('all')
+
+async function onCategoryChange(cat: string): Promise<void> {
+  activeCategory.value = cat
+  videoStore.setFilters({ category: cat === 'all' ? undefined : cat })
+  await reload()
+}
+
 
 function openVideo(video: Video): void {
   void router.push({ name: 'VideoDetail', params: { id: video.id } })
@@ -70,6 +79,9 @@ onMounted(async () => {
     />
 
     <section class="mx-auto max-w-[1600px] px-4 pt-6 sm:px-6 lg:px-8">
+      <div class="mb-4">
+        <CategoryNav v-model="activeCategory" @change="onCategoryChange" />
+      </div>
       <FilterBar
         :model-value="videoStore.filters"
         :tags="tags"
