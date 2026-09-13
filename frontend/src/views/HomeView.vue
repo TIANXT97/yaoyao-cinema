@@ -6,8 +6,6 @@ import { Play } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { mediaUrl } from '@/api/client'
-import LazyImage from '@/components/common/LazyImage.vue'
 import ProgressBar from '@/components/media/ProgressBar.vue'
 import TagPill from '@/components/media/TagPill.vue'
 import VideoGrid from '@/components/media/VideoGrid.vue'
@@ -91,55 +89,65 @@ onMounted(async () => {
       </p>
     </section>
 
-    <!-- 继续观看 -->
+    <!-- 继续观看（极简纯白胶囊卡片，免海报直出） -->
     <section
       v-if="continueList.length > 0"
-      class="mx-auto mt-10 max-w-[1600px] px-4 sm:px-6 lg:px-8"
+      class="mx-auto mt-8 max-w-[1600px] px-4 sm:px-6 lg:px-8"
     >
-      <div class="mb-4 flex items-baseline justify-between">
-        <h2 class="text-base text-ink">继续观看</h2>
+      <div class="mb-3.5 flex items-baseline justify-between">
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-medium text-ink">继续观看</h2>
+          <span class="rounded-full bg-paper-mute px-2 py-0.5 font-mono text-[11px] text-ink-faint">
+            {{ continueList.length }}
+          </span>
+        </div>
         <router-link
           :to="{ name: 'History' }"
-          class="text-xs text-ink-faint transition-colors duration-150 ease-yy hover:text-ink"
+          class="text-xs text-ink-faint transition-colors duration-150 ease-yy hover:text-accent"
         >
-          全部历史
+          全部历史 &rarr;
         </router-link>
       </div>
 
-      <div class="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+      <div class="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
         <button
           v-for="record in continueList"
           :key="record.video_id"
           type="button"
-          class="group w-32 shrink-0 text-left sm:w-40"
+          class="group flex w-48 shrink-0 flex-col justify-between rounded-xl border border-line/70 bg-paper p-3 text-left shadow-soft transition-all duration-200 ease-yy hover:-translate-y-0.5 hover:border-accent/40 hover:bg-paper-soft hover:shadow-md sm:w-56"
           @click="resumePlay(record)"
         >
-          <div class="relative overflow-hidden rounded-lg bg-paper-mute shadow-soft">
-            <LazyImage
-              :src="mediaUrl(record.poster_path) || mediaUrl(record.thumb_path)"
-              :alt="displayTitle(record.title)"
-              aspect="2 / 3"
-            />
-            <div
-              class="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-300 ease-yy group-hover:bg-black/10 group-hover:opacity-100"
-            >
-              <span
-                class="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow-soft"
+          <!-- 头部：标题与播放图标 -->
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <p
+                class="truncate text-[13px] font-medium text-ink transition-colors duration-150 ease-yy group-hover:text-accent"
+                :title="displayTitle(record.title)"
               >
-                <Play :size="13" :stroke-width="1.5" class="ml-0.5 text-ink" />
-              </span>
+                {{ displayTitle(record.title) }}
+              </p>
+              <p
+                v-if="record.bangou"
+                class="mt-0.5 truncate font-mono text-[10px] tracking-bangou text-ink-faint"
+              >
+                {{ record.bangou }}
+              </p>
             </div>
-            <div class="absolute inset-x-0 bottom-0">
-              <ProgressBar :value="record.progress" height="h-[3px]" />
+            <span
+              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line/60 bg-paper-mute text-ink-soft transition-all duration-200 ease-yy group-hover:border-accent group-hover:bg-accent group-hover:text-white"
+            >
+              <Play :size="11" :stroke-width="2" class="ml-0.5" />
+            </span>
+          </div>
+
+          <!-- 底部：细进度条与观看时间信息 -->
+          <div class="mt-3 w-full">
+            <ProgressBar :value="record.progress" height="h-[2.5px]" track="bg-line" />
+            <div class="mt-1.5 flex items-center justify-between font-mono text-[10px] text-ink-faint">
+              <span>看到 {{ formatClock((record.position ?? 0) / 1000) }}</span>
+              <span>{{ Math.round(record.progress * 100) }}%</span>
             </div>
           </div>
-          <p class="mt-2 truncate text-[13px] text-ink">
-            {{ displayTitle(record.title) }}
-          </p>
-          <p class="mt-0.5 truncate text-[11px] text-ink-faint">
-            看到 {{ formatClock((record.position ?? 0) / 1000) }} ·
-            {{ formatRelativeTime(record.watched_at) }}
-          </p>
         </button>
       </div>
     </section>
