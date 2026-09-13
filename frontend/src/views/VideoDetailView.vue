@@ -107,8 +107,9 @@ async function load(): Promise<void> {
       const data = await listVideos({
         series_id: result.series_id,
         per_page: 100,
-        sort: 'date_added',
+        sort: 'title',
         order: 'asc',
+        group_series: false,
       })
       episodes.value = data.items
     } catch {

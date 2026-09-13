@@ -121,7 +121,7 @@ async def list_videos(
 
     where_sql = " WHERE " + " AND ".join(where)
 
-    if group_series:
+    if group_series and not series_id:
         return await _list_videos_grouped(
             db, where_sql, params, column, direction, page, per_page
         )
@@ -159,7 +159,7 @@ async def _list_videos_grouped(
         "              AS episode_count,"
         "         ROW_NUMBER() OVER ("
         "             PARTITION BY COALESCE(f.series_id, 'video:' || f.id)"
-        "             ORDER BY f.date_added ASC, f.id ASC"
+        "             ORDER BY f.file_name ASC, f.id ASC"
         "         ) AS rn"
         "  FROM filtered f"
         ") "
