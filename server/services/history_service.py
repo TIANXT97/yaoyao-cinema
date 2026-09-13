@@ -121,23 +121,26 @@ async def get_recent(
 ) -> list[dict[str, Any]]:
     """最近观看列表（每部影片取最新一条历史，附带影片摘要）。"""
     limit = max(1, min(int(limit or 20), 100))
-    # watched_at 精度仅到秒，同秒多写会命中多条；用窗口函数按 video_id
-    # 取最新一条（rowid 兜底），彻底消除重复
+    # 聚合铁律：电视剧按 series_id 聚合（只保留最后一次观看的那一集与进度）；
+    # 电影/独立视频按 video_id 聚合。彻底杜绝同一部剧多集并排刷屏！
     rows = await db.fetchall(
-        "SELECT r.id, r.video_id, r.position, r.duration, r.progress, "
-        "       r.completed, r.watched_at, r.device, "
-        "       v.title, v.bangou, v.poster_path, v.thumb_path, "
-        "       v.file_size, v.duration AS video_duration, v.is_hidden "
-        "FROM ("
-        "    SELECT h.*, "
+        "WITH ranked_history AS ("
+        "    SELECT h.*, v.series_id, v.title, v.bangou, v.poster_path, v.thumb_path, "
+        "           v.file_size, v.duration AS video_duration, v.is_hidden, "
         "           ROW_NUMBER() OVER ("
-        "               PARTITION BY h.video_id "
+        "               PARTITION BY COALESCE(v.series_id, 'video:' || h.video_id) "
         "               ORDER BY h.watched_at DESC, h.rowid DESC"
         "           ) AS rn "
-        "    FROM watch_history h"
-        ") r "
-        "JOIN videos v ON v.id = r.video_id "
-        "WHERE r.rn = 1 AND v.is_hidden = 0 "
+        "    FROM watch_history h "
+        "    JOIN videos v ON v.id = h.video_id "
+        "    WHERE v.is_hidden = 0"
+        ") "
+        "SELECT r.id, r.video_id, r.position, r.duration, r.progress, "
+        "       r.completed, r.watched_at, r.device, "
+        "       r.title, r.bangou, r.poster_path, r.thumb_path, "
+        "       r.file_size, r.video_duration, r.is_hidden "
+        "FROM ranked_history r "
+        "WHERE r.rn = 1 "
         "ORDER BY r.watched_at DESC LIMIT ?",
         (limit,),
     )
