@@ -70,6 +70,7 @@ export const useVideoStore = defineStore('video', () => {
         studio: filters.value.studio,
         favorite: filters.value.favorite,
         status: filters.value.status,
+        category: filters.value.category,
         group_series: filters.value.groupSeries,
       })
 
