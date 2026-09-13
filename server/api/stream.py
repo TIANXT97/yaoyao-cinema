@@ -15,10 +15,11 @@ from typing import AsyncIterator
 
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 
 from .. import config
 from ..database import Database, get_db
+from ..utils.http_client import get_client
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -92,16 +93,44 @@ async def file_iterator(
             yield chunk
 
 
-@router.get("/stream/{video_id}")
+@router.get("/stream/{video_id}", response_model=None)
 async def stream_video(
     video_id: str,
     request: Request,
     db: Database = Depends(get_db),
-) -> StreamingResponse:
-    """HTTP 206 Partial Content 视频流伺服。"""
+) -> StreamingResponse | RedirectResponse:
+    """视频流伺服：云端 302 直链，本地 HTTP 206 分块。"""
     video = await db.get_video(video_id)
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
+
+    # —— 云端媒体：向 Alist 换取真实原画直链后 302 重定向 ——
+    if video.get("storage_type") == "cloud" or video.get("cloud_fs_path"):
+        cloud_fs_path = video.get("cloud_fs_path")
+        raw_url: str | None = None
+        if cloud_fs_path:
+            headers = {}
+            if config.ALIST_TOKEN:
+                headers["Authorization"] = config.ALIST_TOKEN
+            try:
+                client = await get_client()
+                response = await client.post(
+                    f"{config.ALIST_BASE_URL}/api/fs/get",
+                    json={"path": cloud_fs_path, "password": ""},
+                    headers=headers,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                raw_url = (payload.get("data") or {}).get("raw_url")
+            except Exception as exc:  # noqa: BLE001 - 统一降级为 502
+                logger.error("Alist 直链获取失败 %s: %s", cloud_fs_path, exc)
+        if not raw_url:
+            raise HTTPException(status_code=502, detail="云端直链获取失败")
+        return RedirectResponse(
+            url=raw_url,
+            status_code=302,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
 
     file_path = Path(video["file_path"])
     if not file_path.is_file():

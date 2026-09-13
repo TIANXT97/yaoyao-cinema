@@ -22,6 +22,7 @@ from .. import config
 from ..database import Database
 from ..database import db as default_db
 from ..utils.ffprobe import ffprobe_async
+from ..utils.http_client import get_client
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -235,6 +236,103 @@ async def _build_record(video_path: Path) -> dict[str, Any]:
     return record
 
 
+async def _alist_fs_list(path: str) -> list[dict[str, Any]]:
+    """调用 Alist ``/api/fs/list`` 列出目录内容（失败时返回空列表）。"""
+    headers: dict[str, str] = {}
+    if config.ALIST_TOKEN:
+        headers["Authorization"] = config.ALIST_TOKEN
+    try:
+        client = await get_client()
+        response = await client.post(
+            f"{config.ALIST_BASE_URL}/api/fs/list",
+            json={
+                "path": path,
+                "password": "",
+                "page": 1,
+                "per_page": 0,
+                "refresh": False,
+            },
+            headers=headers,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:  # noqa: BLE001 - 云端不可达不阻断本地扫描
+        logger.warning("Alist 遍历失败 %s: %s", path, exc)
+        return []
+    if payload.get("code") not in (None, 200):
+        logger.warning("Alist 返回异常 %s: %s", path, payload.get("message"))
+        return []
+    return list((payload.get("data") or {}).get("content") or [])
+
+async def _scan_alist_dir(
+    directory: str,
+    database: Database,
+    existing: set[str],
+    discovered: set[str],
+) -> tuple[int, int]:
+    """递归遍历 Alist 目录，登记云端影片（不调用 ffprobe）。"""
+    added = 0
+    skipped = 0
+    parent = directory.rstrip("/")
+    entries = await _alist_fs_list(directory)
+
+    names = {str(e.get("name")) for e in entries if e.get("name")}
+    poster_name: Optional[str] = None
+    if "poster.jpg" in names:
+        poster_name = "poster.jpg"
+    elif "cover.jpg" in names:
+        poster_name = "cover.jpg"
+
+    for entry in entries:
+        name = entry.get("name")
+        if not name:
+            continue
+        virtual_path = f"{parent}/{name}"
+
+        if entry.get("is_dir"):
+            sub_added, sub_skipped = await _scan_alist_dir(
+                virtual_path, database, existing, discovered
+            )
+            added += sub_added
+            skipped += sub_skipped
+            continue
+
+        if Path(name).suffix.lower() not in config.VIDEO_EXTS:
+            continue
+
+        cloud_file_path = f"cloud://{virtual_path}"
+        discovered.add(cloud_file_path)
+
+        if cloud_file_path in existing:
+            if poster_name:
+                current = await database.get_video_by_path(cloud_file_path)
+                poster_path = f"cloud://{parent}/{poster_name}"
+                if current and current.get("poster_path") != poster_path:
+                    await database.update_video(
+                        current["id"], {"poster_path": poster_path}
+                    )
+            skipped += 1
+            continue
+
+        record: dict[str, Any] = {
+            "id": str(uuid4()),
+            "title": Path(name).stem,
+            "file_path": cloud_file_path,
+            "file_name": name,
+            "file_size": int(entry.get("size") or 0),
+            "storage_type": "cloud",
+            "cloud_fs_path": virtual_path,
+        }
+        if poster_name:
+            record["poster_path"] = f"cloud://{parent}/{poster_name}"
+        try:
+            await database.insert_video(record)
+            added += 1
+        except Exception as exc:  # noqa: BLE001 - 单个文件失败不阻断整体扫描
+            logger.error("注册云端影片失败 %s: %s", virtual_path, exc)
+
+    return added, skipped
+
 async def scan_media_library(
     database: Optional[Database] = None,
 ) -> dict[str, Any]:
@@ -304,7 +402,15 @@ async def _scan_locked(database: Database) -> dict[str, Any]:
                     except Exception as exc:  # noqa: BLE001 - 单个文件失败不阻断整体扫描
                         logger.error("注册影片失败 %s: %s", full_path, exc)
 
-        missing = existing - discovered
+        if config.ALIST_ENABLE:
+            for alist_root in ("/百度网盘/电影", "/百度网盘/电视剧"):
+                cloud_added, cloud_skipped = await _scan_alist_dir(
+                    alist_root, database, existing, discovered
+                )
+                added += cloud_added
+                skipped += cloud_skipped
+
+        missing = {p for p in (existing - discovered) if not p.startswith("cloud://")}
         if missing:
             await database.mark_missing(sorted(missing))
 

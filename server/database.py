@@ -249,6 +249,8 @@ VIDEO_COLUMNS: frozenset[str] = frozenset(
         "last_played",
         "is_favorite",
         "is_hidden",
+        "storage_type",
+        "cloud_fs_path",
         "created_at",
         "updated_at",
     }
@@ -302,6 +304,13 @@ class Database:
         """建表 + 索引 + 触发器（幂等）。"""
         await self.conn.executescript(SCHEMA_SQL)
         await self.conn.executescript(TRIGGERS_SQL)
+        # 平滑迁移：为历史库补齐云端双轨字段（幂等）
+        cols = {row["name"] for row in await self.fetchall("PRAGMA table_info(videos)")}
+        if "storage_type" not in cols:
+            await self.conn.execute("ALTER TABLE videos ADD COLUMN storage_type TEXT DEFAULT 'local'")
+        if "cloud_fs_path" not in cols:
+            await self.conn.execute("ALTER TABLE videos ADD COLUMN cloud_fs_path TEXT DEFAULT NULL")
+        await self.conn.commit()
         await self._migrate_actor_unique_index()
         await self.conn.commit()
         logger.info("数据库表结构初始化完成: %s", self.db_path)

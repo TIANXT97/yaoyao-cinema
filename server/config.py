@@ -109,3 +109,8 @@ def ensure_directories() -> None:
         NFO_DIR,
     ):
         directory.mkdir(parents=True, exist_ok=True)
+
+# —— Alist 云端直链聚合集成 ——
+ALIST_ENABLE: bool = os.getenv("ALIST_ENABLE", "true").lower() in ("true", "1", "yes")
+ALIST_BASE_URL: str = os.getenv("ALIST_BASE_URL", "http://192.168.31.235:5244").rstrip("/")
+ALIST_TOKEN: str = os.getenv("ALIST_TOKEN", "")
