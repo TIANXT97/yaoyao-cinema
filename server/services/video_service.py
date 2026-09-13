@@ -23,6 +23,9 @@ SORTABLE_COLUMNS: dict[str, str] = {
 
 _RESUME_COMPLETED_THRESHOLD = 0.9
 
+# 二级分类导航顺序（与前端 CategoryNav 胶囊一一对应）
+CATEGORY_ORDER: tuple[str, ...] = ("movie", "c_drama", "k_drama", "w_drama", "local")
+
 
 def _clamp_pagination(page: int, per_page: int) -> tuple[int, int]:
     page = max(1, int(page or 1))
@@ -51,9 +54,14 @@ async def list_videos(
     studio: Optional[str] = None,
     favorite: Optional[bool] = None,
     status: Optional[str] = None,
+    category: Optional[str] = None,
     group_series: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """分页 + 排序 + 筛选查询影片列表，返回 (items, total)。
+
+    ``category`` 为二级分类过滤（movie / c_drama / k_drama / w_drama / local）；
+    为空或 ``'all'`` 时不过滤。``group_series=True`` 时聚合逻辑不变：
+    同一剧集的分集目录同属一个分类，因此聚合卡片不会跨分类被拆散。
 
     ``group_series=True`` 时进入「聚合展示模式」：
     - 电影 / 未绑定系列的独立视频（``series_id IS NULL``）按单部返回；
@@ -106,6 +114,10 @@ async def list_videos(
     if status:
         where.append("v.scrape_status = ?")
         params.append(status)
+
+    if category and str(category).strip() not in ("", "all"):
+        where.append("v.category = ?")
+        params.append(str(category).strip())
 
     where_sql = " WHERE " + " AND ".join(where)
 
@@ -184,6 +196,31 @@ async def _list_videos_grouped(
         items.append(item)
     return items, total
 
+
+async def get_category_summary(db: Database) -> dict[str, int]:
+    """各二级分类的「部数」统计（与 ``group_series=True`` 口径一致）。
+
+    返回形如 ``{"all": 94, "movie": 29, "c_drama": 33, "k_drama": 27,
+    "w_drama": 3, "local": 2}``；同一剧集的多部分集只计 1 部，隐藏条目不计入。
+    """
+    rows = await db.fetchall(
+        "SELECT COALESCE(NULLIF(category, ''), 'other') AS category, "
+        "       COUNT(DISTINCT COALESCE(series_id, id)) AS cnt "
+        "FROM videos WHERE is_hidden = 0 GROUP BY category"
+    )
+    counts: dict[str, int] = {str(r["category"]): int(r["cnt"] or 0) for r in rows}
+
+    total_row = await db.fetchone(
+        "SELECT COUNT(DISTINCT COALESCE(series_id, id)) AS total FROM videos "
+        "WHERE is_hidden = 0"
+    )
+
+    summary: dict[str, int] = {"all": int((total_row or {}).get("total") or 0)}
+    for key in CATEGORY_ORDER:
+        summary[key] = counts.pop(key, 0)
+    # 兼容历史库可能残留的 other 等未知分类，保证角标总数不丢票
+    summary.update({key: value for key, value in counts.items() if value})
+    return summary
 
 async def get_video_detail(
     db: Database, video_id: str

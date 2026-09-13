@@ -93,12 +93,12 @@ async def file_iterator(
             yield chunk
 
 
-@router.get("/stream/{video_id}", response_model=None)
+@router.get("/stream/{video_id}")
 async def stream_video(
     video_id: str,
     request: Request,
     db: Database = Depends(get_db),
-) -> StreamingResponse | RedirectResponse:
+):
     """视频流伺服：云端 302 直链，本地 HTTP 206 分块。"""
     video = await db.get_video(video_id)
     if not video:

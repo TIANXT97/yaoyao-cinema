@@ -31,6 +31,9 @@ async def list_videos(
     studio: Optional[str] = Query(None),
     favorite: Optional[bool] = Query(None),
     status: Optional[str] = Query(None),
+    category: Optional[str] = Query(
+        None, description="二级分类：movie / c_drama / k_drama / w_drama / local（all 或留空为不过滤）"
+    ),
     group_series: bool = Query(
         True, description="剧集按系列聚合成一张海报卡片；电影保持单部展示"
     ),
@@ -50,6 +53,7 @@ async def list_videos(
         studio=studio,
         favorite=favorite,
         status=status,
+        category=category,
         group_series=group_series,
     )
     total_pages = (total + per_page - 1) // per_page if per_page else 0
@@ -63,6 +67,17 @@ async def list_videos(
         },
     )
 
+
+@router.get("/videos/categories/summary")
+async def categories_summary(
+    db: Database = Depends(get_db),
+) -> dict[str, int]:
+    """二级分类部数统计（聚合口径与 ``group_series=true`` 列表一致）。
+
+    示例：``{"all": 94, "movie": 29, "c_drama": 33, "k_drama": 27, "w_drama": 3,
+    "local": 2}``。
+    """
+    return await video_service.get_category_summary(db)
 
 @router.get("/videos/{video_id}", response_model=VideoDetail)
 async def get_video(

@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS videos (
     last_played     TEXT,
     is_favorite     INTEGER DEFAULT 0,
     is_hidden       INTEGER DEFAULT 0,
+    category        TEXT DEFAULT 'other',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -75,6 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_videos_series ON videos(series_id);
 CREATE INDEX IF NOT EXISTS idx_videos_scrape_status ON videos(scrape_status);
 CREATE INDEX IF NOT EXISTS idx_videos_favorite ON videos(is_favorite);
 CREATE INDEX IF NOT EXISTS idx_videos_added ON videos(date_added);
+CREATE INDEX IF NOT EXISTS idx_videos_category ON videos(category);
 
 -- 2.2.2 series — 系列表
 CREATE TABLE IF NOT EXISTS series (
@@ -213,6 +215,27 @@ BEGIN
 END;
 """
 
+# ---------------------------------------------------------------------------
+# 二级分类（videos.category）
+#
+# 取值：movie(电影) / c_drama(国产剧) / k_drama(韩剧) / w_drama(欧美剧) / local(私房)
+# DDL 默认值 'other' 仅作为「历史库刚补齐列 / 未归类」的占位，init_schema 会按
+# 下方规则一次性回填为真实分类（与 server/scraper/scanner.detect_category 保持一致）。
+# ---------------------------------------------------------------------------
+
+VIDEO_CATEGORIES: tuple[str, ...] = ("movie", "c_drama", "k_drama", "w_drama", "local")
+
+# (LIKE 模式, 分类) —— 顺序即优先级，先命中者胜出
+CATEGORY_INFERENCE_RULES: tuple[tuple[str, str], ...] = (
+    ("%/电影/%", "movie"),
+    ("%/国产剧/%", "c_drama"),
+    ("%/韩剧/%", "k_drama"),
+    ("%/欧美剧/%", "w_drama"),
+)
+
+# 未命中任何目录规则的资源（本地私有片源等）归入「私房」
+DEFAULT_VIDEO_CATEGORY: str = "local"
+
 # videos 表允许动态写入的列（防止手滑写入未知字段）
 VIDEO_COLUMNS: frozenset[str] = frozenset(
     {
@@ -249,6 +272,7 @@ VIDEO_COLUMNS: frozenset[str] = frozenset(
         "last_played",
         "is_favorite",
         "is_hidden",
+        "category",
         "storage_type",
         "cloud_fs_path",
         "created_at",
@@ -310,10 +334,48 @@ class Database:
             await self.conn.execute("ALTER TABLE videos ADD COLUMN storage_type TEXT DEFAULT 'local'")
         if "cloud_fs_path" not in cols:
             await self.conn.execute("ALTER TABLE videos ADD COLUMN cloud_fs_path TEXT DEFAULT NULL")
+        if "category" not in cols:
+            await self.conn.execute(
+                "ALTER TABLE videos ADD COLUMN category TEXT DEFAULT 'other'"
+            )
+        await self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_videos_category ON videos(category)"
+        )
         await self.conn.commit()
+        await self._migrate_video_categories()
         await self._migrate_actor_unique_index()
         await self.conn.commit()
         logger.info("数据库表结构初始化完成: %s", self.db_path)
+
+    async def _migrate_video_categories(self) -> None:
+        """按目录路径回填 ``videos.category``（幂等，仅处理未归类记录）。
+
+        推断规则（与 ARCHITECTURE 网盘目录结构对齐）：
+        ``/电影/`` -> movie、``/国产剧/`` -> c_drama、``/韩剧/`` -> k_drama、
+        ``/欧美剧/`` -> w_drama，其余（含本地私有片源）-> local（私房）。
+        已被人工修正过的分类（非 NULL 且非 'other'）不会被覆盖。
+        """
+        pending = await self.fetchvalue(
+            "SELECT COUNT(*) FROM videos "
+            "WHERE category IS NULL OR category = 'other' OR category = ''"
+        )
+        if not pending:
+            return
+
+        for pattern, category in CATEGORY_INFERENCE_RULES:
+            await self.conn.execute(
+                "UPDATE videos SET category = ? "
+                "WHERE (category IS NULL OR category = 'other' OR category = '') "
+                "AND file_path LIKE ?",
+                (category, pattern),
+            )
+        await self.conn.execute(
+            "UPDATE videos SET category = ? "
+            "WHERE category IS NULL OR category = 'other' OR category = ''",
+            (DEFAULT_VIDEO_CATEGORY,),
+        )
+        await self.conn.commit()
+        logger.info("已回填 %d 条影片的二级分类", int(pending))
 
     async def _migrate_actor_unique_index(self) -> None:
         """确保 ``actors(name)`` 唯一，兼容历史上已存在普通索引的库。
@@ -496,6 +558,31 @@ class Database:
                 missing,
             )
 
+
+    # ---------------------------------------------------- 失效记录自愈清理
+    async def delete_videos_by_paths(self, paths: Iterable[str]) -> int:
+        """按 ``file_path`` 批量删除影片记录（网盘 / 磁盘已不存在时的自愈清理）。
+
+        外键 ``foreign_keys = ON`` 会级联清理 ``video_actors`` / ``video_tags``
+        与 ``watch_history``；``series.video_count`` 由触发器自动回落。返回删除行数。
+        整批置于同一事务中，失败则整体回滚，避免删一半的脏状态。
+        """
+        targets = [p for p in paths if p]
+        if not targets:
+            return 0
+
+        deleted = 0
+        async with self.transaction():
+            # SQLite 变量个数上限保护：每批 500 个占位符
+            for start in range(0, len(targets), 500):
+                batch = targets[start : start + 500]
+                placeholders = ", ".join("?" for _ in batch)
+                cursor = await self.execute(
+                    f"DELETE FROM videos WHERE file_path IN ({placeholders})",
+                    tuple(batch),
+                )
+                deleted += max(cursor.rowcount, 0)
+        return deleted
 
     # ---------------------------------------------------- scraper_cache 缓存
     async def get_scraper_cache(

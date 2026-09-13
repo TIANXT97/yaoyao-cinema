@@ -38,6 +38,16 @@ class TagCategory(str, Enum):
     THEME = "theme"
     FEATURE = "feature"
 
+class VideoCategory(str, Enum):
+    """videos.category 取值（二级分类导航）。"""
+
+    MOVIE = "movie"
+    C_DRAMA = "c_drama"
+    K_DRAMA = "k_drama"
+    W_DRAMA = "w_drama"
+    LOCAL = "local"
+    OTHER = "other"
+
 
 class ORMModel(BaseModel):
     """统一配置：允许从 sqlite3.Row 转换、忽略未知字段。"""
@@ -76,6 +86,8 @@ class VideoBase(ORMModel):
     last_played: Optional[str] = None
     is_favorite: int = 0
     is_hidden: int = 0
+    # 二级分类：movie / c_drama / k_drama / w_drama / local（'other' 为未归类占位）
+    category: Optional[str] = "other"
     # 聚合展示模式（group_series=true）附加字段：剧集聚合卡片标记与分集总数
     is_series: bool = False
     episode_count: int = 1
