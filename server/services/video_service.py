@@ -51,8 +51,16 @@ async def list_videos(
     studio: Optional[str] = None,
     favorite: Optional[bool] = None,
     status: Optional[str] = None,
+    group_series: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
-    """分页 + 排序 + 筛选查询影片列表，返回 (items, total)。"""
+    """分页 + 排序 + 筛选查询影片列表，返回 (items, total)。
+
+    ``group_series=True`` 时进入「聚合展示模式」：
+    - 电影 / 未绑定系列的独立视频（``series_id IS NULL``）按单部返回；
+    - 属于某剧集的视频按 ``series_id`` 聚合为一条记录，
+      ``title`` 取系列名、``poster_path`` 取 ``series.poster_path``，
+      并附带 ``is_series=True`` / ``episode_count``。
+    """
     page, per_page = _clamp_pagination(page, per_page)
     column, direction = _normalize_sort(sort, order)
 
@@ -101,6 +109,11 @@ async def list_videos(
 
     where_sql = " WHERE " + " AND ".join(where)
 
+    if group_series:
+        return await _list_videos_grouped(
+            db, where_sql, params, column, direction, page, per_page
+        )
+
     total_row = await db.fetchone(
         f"SELECT COUNT(*) AS total FROM videos v{where_sql}", tuple(params)
     )
@@ -113,6 +126,63 @@ async def list_videos(
         tuple(params) + (per_page, offset),
     )
     return rows, total
+
+async def _list_videos_grouped(
+    db: Database,
+    where_sql: str,
+    params: list[Any],
+    column: str,
+    direction: str,
+    page: int,
+    per_page: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """按系列聚合的分页查询（内部实现，供 ``list_videos`` 调用）。"""
+    base_sql = (
+        "WITH filtered AS (SELECT v.* FROM videos v" + where_sql + "), "
+        "ranked AS ("
+        "  SELECT f.*,"
+        "         CASE WHEN f.series_id IS NULL THEN 0 ELSE 1 END AS is_series,"
+        "         CASE WHEN f.series_id IS NULL THEN 1"
+        "              ELSE COUNT(*) OVER (PARTITION BY f.series_id) END"
+        "              AS episode_count,"
+        "         ROW_NUMBER() OVER ("
+        "             PARTITION BY COALESCE(f.series_id, 'video:' || f.id)"
+        "             ORDER BY f.date_added ASC, f.id ASC"
+        "         ) AS rn"
+        "  FROM filtered f"
+        ") "
+        "SELECT v.*, s.name AS _series_name, s.poster_path AS _series_poster "
+        "FROM ranked v LEFT JOIN series s ON s.id = v.series_id "
+        "WHERE v.rn = 1"
+    )
+
+    total_row = await db.fetchone(
+        f"SELECT COUNT(*) AS total FROM ({base_sql})", tuple(params)
+    )
+    total = int(total_row["total"]) if total_row else 0
+
+    offset = (page - 1) * per_page
+    rows = await db.fetchall(
+        f"{base_sql} ORDER BY {column} {direction}, v.id ASC LIMIT ? OFFSET ?",
+        tuple(params) + (per_page, offset),
+    )
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        series_name = item.pop("_series_name", None)
+        series_poster = item.pop("_series_poster", None)
+        item["is_series"] = bool(item.get("is_series"))
+        item["episode_count"] = int(item.get("episode_count") or 1)
+        if item["is_series"]:
+            # 以剧集名与剧集专属海报覆盖代表分集的元数据
+            if series_name:
+                item["title"] = series_name
+            if series_poster:
+                item["poster_path"] = series_poster
+                item["thumb_path"] = series_poster
+        items.append(item)
+    return items, total
 
 
 async def get_video_detail(

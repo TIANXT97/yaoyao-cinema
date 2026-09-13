@@ -107,6 +107,28 @@ def find_local_artwork(video_path: Path) -> dict[str, str]:
             art["thumb_path"] = rel_str
             break
 
+    # 剧集分集：当前目录无海报时，逐级向上继承剧集根目录的 poster / cover
+    if "poster_path" not in art:
+        for ancestor in parent.parents:
+            if media_root not in ancestor.parents:
+                break
+            for name in (
+                "poster.jpg",
+                "poster.png",
+                "cover.jpg",
+                "cover.png",
+                "folder.jpg",
+                "folder.png",
+            ):
+                cand = ancestor / name
+                if cand.is_file():
+                    rel_str = to_rel(cand)
+                    art["poster_path"] = rel_str
+                    art["thumb_path"] = rel_str
+                    break
+            if "poster_path" in art:
+                break
+
     backdrop_candidates = [
         parent / "backdrop.jpg",
         parent / "fanart.jpg",
@@ -236,6 +258,27 @@ async def _build_record(video_path: Path) -> dict[str, Any]:
     return record
 
 
+# 电视剧云端根目录（其下第二层目录名即剧名）
+_TV_ROOT = "/百度网盘/电视剧"
+
+def _tv_series_name(directory: str) -> Optional[str]:
+    """从 ``/百度网盘/电视剧/{分类}/{剧名}/...`` 路径中提取剧名。
+
+    不符合电视剧层级（如电影目录、分类目录）时返回 ``None``。
+    """
+    prefix = _TV_ROOT
+    clean = directory.rstrip("/")
+    if not clean.startswith(prefix):
+        return None
+    rest = clean[len(prefix):].strip("/")
+    if not rest:
+        return None
+    parts = [p for p in rest.split("/") if p]
+    # {分类}/{剧名}/... -> 剧名 = parts[1]；分集子目录（Season 1 等）同样命中
+    if len(parts) >= 2:
+        return parts[1]
+    return None
+
 async def _alist_fs_list(path: str) -> list[dict[str, Any]]:
     """调用 Alist ``/api/fs/list`` 列出目录内容（失败时返回空列表）。"""
     headers: dict[str, str] = {}
@@ -269,12 +312,30 @@ async def _scan_alist_dir(
     database: Database,
     existing: set[str],
     discovered: set[str],
+    inherited_poster: Optional[str] = None,
+    series_id: Optional[str] = None,
+    series_name: Optional[str] = None,
 ) -> tuple[int, int]:
-    """递归遍历 Alist 目录，登记云端影片（不调用 ffprobe）。"""
+    """递归遍历 Alist 目录，登记云端影片（不调用 ffprobe）。
+
+    ``inherited_poster`` 为父级目录已命中的海报路径，实现剧集分集向上继承。
+    若目录位于 ``/百度网盘/电视剧/{分类}/{剧名}/...``，自动绑定 ``series`` 并把
+    同级 / 上级海报同步到 ``series.poster_path`` 与每个分集的 ``poster_path``。
+    """
     added = 0
     skipped = 0
     parent = directory.rstrip("/")
     entries = await _alist_fs_list(directory)
+
+    # 自动识别电视剧剧名（{分类}/{剧名} 层），并 get_or_create 系列记录
+    if series_name is None:
+        series_name = _tv_series_name(directory)
+    if series_name is not None and series_id is None:
+        try:
+            series = await database.get_or_create_series(series_name)
+            series_id = str(series["id"])
+        except Exception as exc:  # noqa: BLE001 - 系列绑定失败不阻断扫描
+            logger.error("创建 / 获取系列失败 %s: %s", series_name, exc)
 
     names = {str(e.get("name")) for e in entries if e.get("name")}
     poster_name: Optional[str] = None
@@ -282,6 +343,22 @@ async def _scan_alist_dir(
         poster_name = "poster.jpg"
     elif "cover.jpg" in names:
         poster_name = "cover.jpg"
+
+    # 当前目录海报优先，否则继承父级剧集海报
+    poster_path = (
+        f"cloud://{parent}/{poster_name}" if poster_name else inherited_poster
+    )
+
+    # 剧集海报：同步到 series.poster_path，保证聚合卡片永不缺图
+    if series_id and poster_path:
+        try:
+            await database.execute(
+                "UPDATE series SET poster_path = ? WHERE id = ? "
+                "AND (poster_path IS NULL OR poster_path != ?)",
+                (poster_path, series_id, poster_path),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("同步系列海报失败 %s: %s", series_name, exc)
 
     for entry in entries:
         name = entry.get("name")
@@ -291,7 +368,13 @@ async def _scan_alist_dir(
 
         if entry.get("is_dir"):
             sub_added, sub_skipped = await _scan_alist_dir(
-                virtual_path, database, existing, discovered
+                virtual_path,
+                database,
+                existing,
+                discovered,
+                poster_path,
+                series_id,
+                series_name,
             )
             added += sub_added
             skipped += sub_skipped
@@ -304,13 +387,15 @@ async def _scan_alist_dir(
         discovered.add(cloud_file_path)
 
         if cloud_file_path in existing:
-            if poster_name:
-                current = await database.get_video_by_path(cloud_file_path)
-                poster_path = f"cloud://{parent}/{poster_name}"
-                if current and current.get("poster_path") != poster_path:
-                    await database.update_video(
-                        current["id"], {"poster_path": poster_path}
-                    )
+            current = await database.get_video_by_path(cloud_file_path)
+            if current:
+                patch: dict[str, Any] = {}
+                if poster_path and current.get("poster_path") != poster_path:
+                    patch["poster_path"] = poster_path
+                if series_id and current.get("series_id") != series_id:
+                    patch["series_id"] = series_id
+                if patch:
+                    await database.update_video(current["id"], patch)
             skipped += 1
             continue
 
@@ -323,8 +408,10 @@ async def _scan_alist_dir(
             "storage_type": "cloud",
             "cloud_fs_path": virtual_path,
         }
-        if poster_name:
-            record["poster_path"] = f"cloud://{parent}/{poster_name}"
+        if poster_path:
+            record["poster_path"] = poster_path
+        if series_id:
+            record["series_id"] = series_id
         try:
             await database.insert_video(record)
             added += 1

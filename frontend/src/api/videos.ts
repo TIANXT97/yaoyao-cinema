@@ -19,6 +19,8 @@ export interface ListVideosParams {
   studio?: string
   favorite?: boolean
   status?: ScrapeStatus
+  /** 剧集按系列聚合成一张海报卡片；电影保持单部展示。 */
+  group_series?: boolean
 }
 
 export interface UpdateVideoPayload {
@@ -60,6 +62,7 @@ export function filtersToParams(
     studio: filters.studio,
     favorite: filters.favorite,
     status: filters.status,
+    group_series: filters.groupSeries,
   }
 }
 

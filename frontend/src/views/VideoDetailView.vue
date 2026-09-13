@@ -22,7 +22,6 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import LazyImage from '@/components/common/LazyImage.vue'
 import ActorCard from '@/components/media/ActorCard.vue'
 import TagPill from '@/components/media/TagPill.vue'
-import VideoGrid from '@/components/media/VideoGrid.vue'
 import { useVideoStore } from '@/stores/video'
 import type { Actor } from '@/types/actor'
 import type { Video } from '@/types/video'
@@ -43,7 +42,7 @@ const { playVideo } = useNativePlayer()
 
 const id = computed(() => String(route.params.id))
 const detail = computed(() => store.currentVideo)
-const seriesVideos = ref<Video[]>([])
+const episodes = ref<Video[]>([])
 const favoriting = ref(false)
 
 const backdrop = computed(
@@ -101,14 +100,19 @@ function goBack(): void {
 
 async function load(): Promise<void> {
   store.currentVideo = null
-  seriesVideos.value = []
+  episodes.value = []
   const result = await store.fetchVideoDetail(id.value)
   if (result?.series_id) {
     try {
-      const data = await listVideos({ series_id: result.series_id, per_page: 12 })
-      seriesVideos.value = data.items.filter((item) => item.id !== result.id)
+      const data = await listVideos({
+        series_id: result.series_id,
+        per_page: 100,
+        sort: 'date_added',
+        order: 'asc',
+      })
+      episodes.value = data.items
     } catch {
-      seriesVideos.value = []
+      episodes.value = []
     }
   }
 }
@@ -255,20 +259,67 @@ watch(
         </div>
       </section>
 
-      <!-- 系列 -->
-      <section v-if="seriesVideos.length > 0" class="mt-12">
+      <!-- 选集播放列表 -->
+      <section v-if="episodes.length > 1" class="mt-12">
         <div class="mb-5 flex items-center gap-2">
           <Layers :size="16" :stroke-width="1.5" class="text-ink-faint" />
           <h2 class="text-sm text-ink">
-            系列 · {{ detail.series?.name ?? '同系列作品' }}
+            选集 · {{ detail.series?.name ?? '同系列作品' }}
           </h2>
+          <span class="font-mono text-[11px] tracking-bangou text-ink-faint">
+            共 {{ episodes.length }} 集
+          </span>
         </div>
-        <VideoGrid
-          :videos="seriesVideos"
-          :infinite="false"
-          :has-more="false"
-          @card-click="openVideo"
-        />
+        <ol class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <li v-for="(episode, index) in episodes" :key="episode.id">
+            <button
+              type="button"
+              class="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 ease-yy"
+              :class="
+                episode.id === detail.id
+                  ? 'border-accent/60 bg-accent/5'
+                  : 'border-line hover:border-accent/40 hover:bg-paper-mute/60'
+              "
+              @click="openVideo(episode)"
+            >
+              <span
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-[11px]"
+                :class="
+                  episode.id === detail.id
+                    ? 'bg-accent text-white'
+                    : 'bg-paper-mute text-ink-soft'
+                "
+              >
+                {{ String(index + 1).padStart(2, '0') }}
+              </span>
+              <span class="min-w-0 flex-1">
+                <span
+                  class="block truncate text-[13px]"
+                  :class="episode.id === detail.id ? 'text-accent' : 'text-ink'"
+                >
+                  {{ displayTitle(episode.title) }}
+                </span>
+                <span
+                  class="mt-0.5 block truncate font-mono text-[11px] tracking-bangou text-ink-faint"
+                >
+                  {{ displayBangou(episode.bangou, episode.file_name) }}
+                </span>
+              </span>
+              <Play
+                v-if="episode.id === detail.id"
+                :size="14"
+                :stroke-width="1.6"
+                class="shrink-0 text-accent"
+              />
+              <span
+                v-else-if="episode.duration"
+                class="shrink-0 font-mono text-[11px] text-ink-faint"
+              >
+                {{ formatClock(episode.duration) }}
+              </span>
+            </button>
+          </li>
+        </ol>
       </section>
     </div>
 

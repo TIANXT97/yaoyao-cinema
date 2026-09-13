@@ -70,6 +70,7 @@ export const useVideoStore = defineStore('video', () => {
         studio: filters.value.studio,
         favorite: filters.value.favorite,
         status: filters.value.status,
+        group_series: filters.value.groupSeries,
       })
 
       videos.value = reset ? data.items : [...videos.value, ...data.items]

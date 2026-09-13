@@ -76,6 +76,9 @@ class VideoBase(ORMModel):
     last_played: Optional[str] = None
     is_favorite: int = 0
     is_hidden: int = 0
+    # 聚合展示模式（group_series=true）附加字段：剧集聚合卡片标记与分集总数
+    is_series: bool = False
+    episode_count: int = 1
 
 
 class VideoCreate(ORMModel):

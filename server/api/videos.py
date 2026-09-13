@@ -31,9 +31,12 @@ async def list_videos(
     studio: Optional[str] = Query(None),
     favorite: Optional[bool] = Query(None),
     status: Optional[str] = Query(None),
+    group_series: bool = Query(
+        False, description="剧集按系列聚合成一张海报卡片；电影保持单部展示"
+    ),
     db: Database = Depends(get_db),
 ) -> VideoListResponse:
-    """影片列表（分页、排序、筛选）。"""
+    """影片列表（分页、排序、筛选；``group_series=true`` 时剧集聚合展示）。"""
     items, total = await video_service.list_videos(
         db,
         page=page,
@@ -47,6 +50,7 @@ async def list_videos(
         studio=studio,
         favorite=favorite,
         status=status,
+        group_series=group_series,
     )
     total_pages = (total + per_page - 1) // per_page if per_page else 0
     return VideoListResponse(

@@ -38,6 +38,10 @@ export interface Video {
   last_played: string | null
   is_favorite: number
   is_hidden: number
+  /** 聚合展示模式（group_series=true）附加：该卡片代表一整部剧集。 */
+  is_series?: boolean
+  /** 聚合展示模式附加：该剧集包含的分集总数（电影为 1）。 */
+  episode_count?: number
   file_path: string
   file_name: string
   file_size: number
@@ -80,12 +84,15 @@ export interface VideoFilters {
   studio?: string
   favorite?: boolean
   status?: ScrapeStatus
+  /** 默认按整部剧聚合展示（电影保持单部）。 */
+  groupSeries?: boolean
 }
 
 export const DEFAULT_FILTERS: VideoFilters = {
   sort: 'date_added',
   order: 'desc',
   search: '',
+  groupSeries: true,
 }
 
 /** 快捷筛选（未看 / 收藏 / 分类）。 */
