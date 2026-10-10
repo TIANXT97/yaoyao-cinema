@@ -62,11 +62,12 @@
 
 | 阶段 | 流程 | 现状 |
 |---|---|---|
-| **现在** | `git push` → 你在 GitHub 开 PR → 老板 merge → 老板告诉你 merge 完成 → **老板 ssh 到 NAS 重发版** | ✅ **走这个** |
-| **中期** | push tag `v1.x.x` → GitHub Actions 自动 build → GHCR → NAS watchtower 拉 | ⏳ TODO |
-| **远期** | NAS 上只跑镜像，源码永不挂载 | ⏳ TODO |
+| **现在** | `git push` → 你在 GitHub 开 PR → 老板 merge → **push 代码的 agent 同场执行 NAS 发版链**（无执行能力时明确交接老板，见下方注） | ✅ **走这个** |
+| **中期** | ~~自动同步流水线（NAS 轮询 / GitHub Actions / GHCR+watchtower）~~ | ❌ **2026-10-10 已否决**: Hermes 评审驳回——"私用项目，拒绝过度设计与无意义轮询，维持人工按需部署"，经老板转达生效。提案存档于起草方本地，不入仓库。**重开条件**: 部署频率升至每周数次以上、或新增第二位代码维护者，届时重提提案 |
+| **远期** | NAS 上只跑镜像，源码永不挂载 | ⏳ TODO（独立议题，不依赖被否决的流水线） |
 
-> ⚠️ 关键现实：**push 完不会自动触发 NAS 发布**。需要老板人工走 `git pull && docker compose up -d --build` 这条链。
+> ⚠️ 关键现实：**push 完不会自动触发 NAS 发布**。发版是人工按需动作，链条为 `git pull && docker compose build yaoyao-cinema && docker compose up -d yaoyao-cinema`。
+> 📌 **谁 push 谁负责发版闭环**: 最后一个碰代码的 agent，在 push/merge 完成后必须同场执行上面这条发版链并确认 NAS 生效；若该 agent 无执行能力，必须向老板明确交接"还差发版一步"，不允许默认老板会记得。此条是"忘了 build"（坑#1）的流程级解法，替代被否决的自动流水线。
 
 ---
 
