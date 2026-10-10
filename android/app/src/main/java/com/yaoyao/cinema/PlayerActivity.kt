@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -50,6 +52,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private var player: ExoPlayer? = null
     private lateinit var playerView: PlayerView
+    private lateinit var gestureDetector: GestureDetector
     private var resultSent = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +70,36 @@ class PlayerActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_player)
         playerView = findViewById(R.id.player_view)
+
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val exo = player ?: return false
+                if (e.x < playerView.width / 2f) exo.seekBack() else exo.seekForward()
+                return true
+            }
+
+            override fun onScroll(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                distanceX: Float,
+                distanceY: Float,
+            ): Boolean {
+                val exo = player ?: return false
+                if (kotlin.math.abs(distanceX) <= kotlin.math.abs(distanceY)) return false
+                val width = playerView.width.takeIf { it > 0 } ?: return false
+                val duration = exo.duration.takeIf { it > 0L } ?: return false
+                val delta = (-distanceX / width * duration).toLong()
+                val target = (exo.currentPosition + delta).coerceIn(0L, duration)
+                exo.seekTo(target)
+                return true
+            }
+        })
+        playerView.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            false
+        }
 
         val url = intent.getStringExtra(EXTRA_URL)
         if (url.isNullOrBlank() || !isPlayableUrl(url)) {
