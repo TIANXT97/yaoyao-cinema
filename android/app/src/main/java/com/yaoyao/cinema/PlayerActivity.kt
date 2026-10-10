@@ -3,10 +3,13 @@ package com.yaoyao.cinema
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -99,6 +102,13 @@ class PlayerActivity : AppCompatActivity() {
         playerView.setOnTouchListener { _, event ->
             gestureDetector.onTouchEvent(event)
             false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            playerView.findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { timeBar ->
+                timeBar.post {
+                    timeBar.systemGestureExclusionRects = listOf(Rect(0, 0, timeBar.width, timeBar.height))
+                }
+            }
         }
 
         val url = intent.getStringExtra(EXTRA_URL)
