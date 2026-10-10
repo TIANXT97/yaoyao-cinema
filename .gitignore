@@ -1,6 +1,6 @@
 # —— 夭夭影社 · 运行时数据 / 媒体（ARCHITECTURE.md 第 5 章） ——
 data/
-media/
+/media/
 frontend/dist/
 *.db
 *.db-wal
