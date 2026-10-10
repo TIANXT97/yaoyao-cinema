@@ -372,7 +372,7 @@ git push origin fix/revert-bad-commit
 **根因**: 当前 `tests/` 目录只有 `test_scraper.py`,没有 `test_api_videos.py`,需要你自己新建(参考 `tests/test_scraper.py` 模板)。
 **解法**: 改成 `pytest tests/ -v`(跑全部现有测试),或者新建 `tests/test_api_videos.py` 再跑。
 
-> ⚠️ **文档作者(self-eval)**: 这是一个已知文档级别 bug——§9 让你读 `docs/tasks/TASK_*.md`,但 `docs/tasks/` 这个目录其实不存在(历史 phase 文档放在仓库根目录 `TASK_*.md`)。这是文档自描述的失误——下次这些文档真的搬进 `docs/tasks/` 时,这部分就应该更新。
+> 📌 **历史注记**: 早期版本的本文档曾指向不存在的 `docs/tasks/` 目录（当时 phase 文档散在仓库根）。2026-10-10 已执行 `git mv TASK_*.md docs/tasks/` 归位，本注记保留作为文档演变的证据。
 
 ### 坑 #9: 临时动 schema 忘了 update models.py
 **症状**: `docker exec` 进容器 can `PRAGMA table_info(videos)` 显示有 latest column,但 `select your_new_col` 还报"no such column"。  
@@ -394,7 +394,7 @@ print([r for r in conn.execute(\"PRAGMA table_info(videos)\")][:15])
 | 你面对的问题 | 去哪儿查 |
 |---|---|
 | 项目设计哲学 /「为什么这么做」 | `docs/ARCHITECTURE.md`（**项目宪法**，真值 more authority than this doc） |
-| 历史 phase 计划 | `TASK_*.md`（在仓库根目录,不按 README 说的在 docs/） |
+| 历史 phase 计划 | `docs/tasks/TASK_*.md` |
 | API 全表 | `docs/ARCHITECTURE.md` §2.5 |
 | 数据库 schema | **`server/database.py:init_schema()` 是真实状态** + `docs/ARCHITECTURE.md` §2.2 注解 |
 | 刮削引擎流程 | **`server/scraper/pipeline.py`** + `docs/ARCHITECTURE.md` §2.4 注解 |
