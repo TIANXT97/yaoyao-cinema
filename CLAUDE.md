@@ -46,7 +46,7 @@
 | 直接修改 `data/yaoyao.db` 文件 | 数据库文件被前后都拿，手改会炸 | **写 migration + `server/database.py`** |
 | 绕过 GitHub 直接改 NAS 上源码 | `git pull` 会覆盖你的改动 | **永远走 Git push** |
 | `docker compose up -d` 不带服务名 | 会重建 compose 内的所有 service（你的 `docker-compose.yml` 只含 yaoyao-cinema 这一只；**另外的 alist/mihomo-gateway 在你 NAS 上是独立 compose 项目，不会被这条命令影响**） | **永远 `docker compose up -d yaoyao-cinema` 指定服务名**，习惯写死是个保险 |
-| `git push --force` / `reset --hard` 主线 | 历史是金库 | **只做 fast-forward** |
+| `git push --force` / `reset --hard` 主线 | 历史是金库 | **只做 fast-forward**。唯一豁免见 `AGENTS.md` §3.4「凭据与敏感资产清洗」：敏感内容已进 Git 历史时允许重写历史 + `--force-with-lease`，且必须事后向老板报备并记录旧 head hash |
 
 ### ⚠️ 需老板审批的
 
@@ -325,7 +325,7 @@ git push origin fix/revert-bad-commit
 # PR -> 老板 merge。
 ```
 
-> ⚠️ 总之: **两行绝不本**。⑴ 不允许 agent force push main; ⑵ 不允许 agent reset main 历史。实情岀錯知主,让老板 Follow 他自己 选的策略。
+> ⚠️ 总之: **两条红线绝不破**。⑴ 不允许 agent force-push main; ⑵ 不允许 agent reset main 历史。真遇到必须破的场景（见 `AGENTS.md` §3.4 敏感资产清洗豁免），事后向老板报备原因与旧 head hash，老板是最终裁决人。
 
 ---
 

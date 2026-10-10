@@ -98,7 +98,28 @@ Claude: "我知道 stream.py 加 `@router.head` 是我的change,我可能修,
 - 你 NAS 上 yaoyao-cinema 的 compose 只含 yaoyao-cinema 这一只;**mihomo-gateway 和 alist 在你 NAS 上跑在另外的 docker compose 项目里**,不会被这条命令影响
 - 但养这个习惯保险——**未来 compose 加新服务,或这套 compose 在其他目录复用时**,你不会因为别人写了第二三个服务而意外重启它
 
+### 3.4 特例豁免：凭据与敏感资产清洗（历史重写许可）
 
+§1 / §3.2 的红线（禁止直推 main、禁止 force-push）针对的是**常规代码变更**。下面这一类是唯一豁免，法理依据只有一句：**敏感内容一旦进了 Git 历史，追加 commit 是删不掉它的**——旧快照永远留在树对象里，任何有 clone 权限的人 checkout 任意历史版本都能翻出来。唯一根治手段是重写历史把它抹掉。
+
+**触发条件**（必须同时满足）:
+1. 凭据（token / 密码 / 私钥）、未脱敏隐私、或敏感资产（私人片源名、含个人信息的截图等）**已经 commit 进 Git 历史**;
+2. 常规手段（追加新 commit / `git revert`）**无法**让敏感内容从历史中消失。
+
+**允许的动作**（仅限豁免窗口内）:
+- 重写历史（`commit --amend` / `rebase` / 新 commit 顶替旧 commit），然后 `git push --force-with-lease` 覆盖 main;
+- 执行者可以是任一 agent，**不需要事先请示老板**（安全优先于流程），但必须做到以下三条:
+  1. 只用 `--force-with-lease`，**禁止**裸 `--force`（防止覆盖掉你没看见的、别人刚推的 commit）;
+  2. **事后立即向老板报备**（mirasim），说明: 泄漏了什么、抹掉了哪些 commit、新 head 是哪个;
+  3. 报备里必须记录被抹掉的旧 head hash——force-push 后对象在 GitHub 侧仍有保留窗口、本地 reflog 也在，记下 hash 才可能找回;
+  4. 另一只 agent 不得把本次操作判为违约，但有权要求老板复核报备内容。
+
+**不属于本豁免**:
+- 普通代码 bug、文档错误、功能回滚——一律走 `git revert` / 新 commit / PR 流程;
+- "我觉得这段历史很乱想整理一下 commit"——审美理由不构成触发条件;
+- 敏感内容**尚未 push 到远端**（只在本机 commit 里）——本地 amend 掉即可，不需要 force-push。
+
+> 📌 **判例记录（2026-10-10）**: Hermes 发现 README 海报墙截图含老板私人片源文件名与搜索标签（已随 `af95440` 推上 main），触发本豁免：替换为公开影片（奥本海默 / 星际穿越 / 沙丘 2）截图、压缩 commit 重写历史，force-push 为新 head `e082301`，旧 head `af95440` 已从远端移除。处置被老板与 Claude 复核为正确。本条款事后立字，双 agent 确认。
 
 ---
 
