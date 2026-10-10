@@ -121,7 +121,7 @@ CREATE TABLE videos (
     title           TEXT NOT NULL,              -- 显示标题
     original_title  TEXT,                       -- 原始标题（日文等）
     sort_title      TEXT,                       -- 排序用标题
-    bangou          TEXT,                       -- 番号（如 SSIS-001, FC2-PPV-1234567）
+    bangou          TEXT,                       -- 番号（如 OPPENHEIMER-2023, FC2-PPV-1234567）
     bangou_norm     TEXT,                       -- 归一化番号（大写去连字符，用于去重匹配）
     -- 分类维度
     series_id       TEXT REFERENCES series(id), -- 所属系列
@@ -506,7 +506,7 @@ import re
 PATTERNS = [
     # FC2-PPV 系列
     (r"(?:FC2[-_]?PPV[-_]?)(\d{5,7})", lambda m: f"FC2-PPV-{m.group(1)}"),
-    # 标准番号：字母3-10 + 数字3-5（如 SSIS-001, ABP-123, CAWD-001）
+    # 标准番号：字母3-10 + 数字3-5（如 OPPENHEIMER-2023, ABP-123, CAWD-001）
     (r"([A-Z]{2,10})[-_]?(\d{3,5})", lambda m: f"{m.group(1)}-{m.group(2)}"),
     # 无码系列：数字6+_数字3+（如 010120_001 → 一本道格式）
     (r"(\d{6})[-_](\d{3,4})", lambda m: f"{m.group(1)}_{m.group(2)}"),
@@ -522,7 +522,7 @@ def parse_bangou(filename: str) -> dict | None:
 
     返回:
         {
-            "bangou": "SSIS-001",          # 标准显示格式
+            "bangou": "OPPENHEIMER-2023",          # 标准显示格式
             "bangou_norm": "SSIS001",       # 归一化（大写、去连字符、用于去重）
             "type": "censored" | "uncensored" | "fc2"
         }
@@ -753,15 +753,15 @@ async def download_and_crop_poster(url: str, video_id: str, aspect_ratio=(2, 3))
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <movie>
-  <title>SSIS-001 夕美しおん</title>
-  <originaltitle>新人NO.1STYLE 夕美しおんAVデビュー</originaltitle>
-  <sorttitle>SSIS-001</sorttitle>
-  <num>SSIS-001</num>
-  <studio>S1 NO.1 STYLE</studio>
-  <director>キョウセイ</director>
+  <title>Oppenheimer 奥本海默</title>
+  <originaltitle>Oppenheimer 2023 4K REMUX</originaltitle>
+  <sorttitle>OPPENHEIMER-2023</sorttitle>
+  <num>OPPENHEIMER-2023</num>
+  <studio>Universal Pictures</studio>
+  <director>Christopher Nolan</director>
   <year>2021</year>
   <premiered>2021-01-19</premiered>
-  <plot>新人NO.1STYLE...</plot>
+  <plot>传记/剧情/历史...</plot>
   <runtime>120</runtime>
   <rating>8.5</rating>
   <tag>巨乳</tag>
@@ -769,11 +769,11 @@ async def download_and_crop_poster(url: str, video_id: str, aspect_ratio=(2, 3))
   <genre>巨乳</genre>
   <genre>新人</genre>
   <actor>
-    <name>夕美しおん</name>
-    <thumb>posters/actors/yumi_shion.jpg</thumb>
+    <name>Cillian Murphy</name>
+    <thumb>posters/actors/cillian_murphy.jpg</thumb>
   </actor>
   <set>
-    <name>新人NO.1STYLE</name>
+    <name>奥本海默</name>
   </set>
   <art>
     <poster>poster.jpg</poster>
@@ -1807,7 +1807,7 @@ export function useNativePlayer() {
 | 2.1 | 实现 `scraper/scanner.py`：文件遍历 + ffprobe 探测 | 扫描器 | 扫描 media 目录，新文件入库 |
 | 2.2 | 实现 `scraper/bangou_parser.py`：番号正则提取 | 解析器 | 测试用例覆盖所有番号格式 |
 | 2.3 | 实现 `scraper/sources/base.py`：数据源基类定义 | 接口规范 | 抽象方法完整 |
-| 2.4 | 实现 `scraper/sources/javbus.py`：JavBus 有码刮削 | 刮削器 | 输入 `SSIS-001` 返回完整结构 |
+| 2.4 | 实现 `scraper/sources/javbus.py`：JavBus 有码刮削 | 刮削器 | 输入 `OPPENHEIMER-2023` 返回完整结构 |
 | 2.5 | 实现 `scraper/sources/javdb.py`：JavDB 刮削 | 刮削器 | 输入番号返回数据 |
 | 2.6 | 实现 `scraper/sources/fc2hub.py` + `javdb_fc2.py` | FC2 刮削器 | FC2 番号可刮削 |
 | 2.7 | 实现 `scraper/sources/javbus_uncensored.py` 等无码源 | 无码刮削器 | 无码番号可刮削 |

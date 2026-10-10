@@ -18,7 +18,17 @@
 
 ## 📸 截图
 
-> 📷 此处应该有 3 张图（手机海报墙 / 手机播放页 / PC 海报墙）。下次发布时补。
+### PC 端 · 纯白极简海报墙
+![PC 端海报墙](docs/screenshots/pc-library.png)
+
+<br/>
+
+### 移动端 · 海报墙与原画直出播放
+<p align="center">
+  <img src="docs/screenshots/mobile-library.png" width="48%" alt="手机端海报墙" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/mobile-player.png" width="48%" alt="手机端播放页" />
+</p>
 
 ---
 

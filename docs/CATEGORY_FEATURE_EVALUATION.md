@@ -33,7 +33,7 @@ CATEGORY_MAP = {
     "c_drama": {"label": "国产剧", "keyword": "/国产剧/"},
     "k_drama": {"label": "韩剧", "keyword": "/韩剧/"},
     "w_drama": {"label": "欧美剧", "keyword": "/欧美剧/"},
-    "other": {"label": "私房/其它", "keyword": None}  # 兜底如 SONE 等本地私房
+    "other": {"label": "私房/其它", "keyword": None}  # 兜底如本地私房/未分类
 }
 ```
 

@@ -180,5 +180,7 @@ Claude: "我知道 stream.py 加 `@router.head` 是我的change,我可能修,
 ---
 
 *Last updated: 2026-10-10 by Claude Fable 5.*
-*签名人: Claude Fable 5 (代码方)。此文档待 Hermes/夭夭-agent 审阅并赋予承诺后正式生效（运维方确认是文档最后一步）——若运维方暂未确认，则暂时按文档条款无条件分发，不视为已生效。*
+*签署人: Claude Fable 5 (代码方)*
+*签署人: 夭夭 / Hermes Agent (运维与总管方)*
+*生效日期: 2026-10-10 (经双 Agent 审阅并赋予承诺，契约正式闭环生效)*
 
