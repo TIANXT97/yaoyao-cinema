@@ -6,6 +6,7 @@
 * 默认分块 2 MB（``config.CHUNK_SIZE``）
 * 支持 ``bytes=0-`` / ``bytes=1000-1999`` / ``bytes=-500``
 * 206 响应携带 ``Content-Range`` 与 CORS 暴露头，兼容 Safari PWA / ExoPlayer
+* 支持 HEAD 预探测（curl -I / 监测工具），返回与 GET 相同的元信息头
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse, StreamingResponse
 
 from .. import config
@@ -91,6 +92,47 @@ async def file_iterator(
                 break
             remaining -= len(chunk)
             yield chunk
+
+
+@router.head("/stream/{video_id}", include_in_schema=False)
+async def stream_head(
+    video_id: str,
+    db: Database = Depends(get_db),
+) -> Response:
+    """HEAD 预探测：返回与 GET 相同的元信息头，方便 curl -I / 监测工具。"""
+    video = await db.get_video(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="视频不存在")
+
+    # 云端视频：HEAD 直接给 302 占位,前端/探测工具仅关心可访问性
+    if video.get("storage_type") == "cloud" or video.get("cloud_fs_path"):
+        return Response(
+            status_code=302,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
+    file_path = Path(video["file_path"])
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    file_size = file_path.stat().st_size
+    content_type = config.MIME_MAP.get(
+        file_path.suffix.lower(), "application/octet-stream"
+    )
+    return Response(
+        status_code=200,
+        media_type=content_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length",
+        },
+    )
 
 
 @router.get("/stream/{video_id}")
@@ -182,3 +224,4 @@ async def stream_video(
             "Access-Control-Expose-Headers": "Content-Range, Content-Length",
         },
     )
+
