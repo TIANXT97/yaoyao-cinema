@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 #
 # 夭夭影社 · 单容器一体化全栈镜像
 # ------------------------------------------------
@@ -32,7 +31,9 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # ffprobe：扫描器媒体探测所需（ARCHITECTURE.md 2.4）
-RUN apt-get update \
+# 国内网络下 deb.debian.org 太慢,先用清华 TUNA 镜像
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
