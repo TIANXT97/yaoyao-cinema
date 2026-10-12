@@ -114,3 +114,5 @@ def ensure_directories() -> None:
 ALIST_ENABLE: bool = os.getenv("ALIST_ENABLE", "true").lower() in ("true", "1", "yes")
 ALIST_BASE_URL: str = os.getenv("ALIST_BASE_URL", "http://192.168.31.235:5244").rstrip("/")
 ALIST_TOKEN: str = os.getenv("ALIST_TOKEN", "")
+ALIST_TIMEOUT: float = float(os.getenv("ALIST_TIMEOUT", "4.0"))  # 直链请求硬超时（秒）
+ALIST_CACHE_TTL: float = float(os.getenv("ALIST_CACHE_TTL", "30.0"))  # 直链缓存有效期（秒）
