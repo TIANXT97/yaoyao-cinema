@@ -12,10 +12,18 @@ import {
   ScanLine,
   Server,
   Sparkles,
+  Download,
+  ExternalLink,
+  ArrowUpCircle,
 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { apiBase, setApiBase } from '@/api/client'
+import {
+  checkForUpdate,
+  CURRENT_APP_VERSION,
+  type AppReleaseInfo,
+} from '@/services/updateService'
 import {
   getScraperStatus,
   scrapeAll,
@@ -61,6 +69,29 @@ function onResetApiBase(): void {
   error.value = null
   notice.value = `API 基址已重置为默认（${normalized}）`
   flashApiBaseSaved()
+}
+
+// 应用更新检测
+const checkingUpdate = ref(false)
+const releaseInfo = ref<AppReleaseInfo | null>(null)
+const updateChecked = ref(false)
+
+async function onCheckUpdate(): Promise<void> {
+  if (checkingUpdate.value) return
+  checkingUpdate.value = true
+  error.value = null
+  try {
+    const info = await checkForUpdate(CURRENT_APP_VERSION)
+    releaseInfo.value = info
+    updateChecked.value = true
+    if (!info.hasUpdate) {
+      notice.value = `当前已是最新版本（v${CURRENT_APP_VERSION}）`
+    }
+  } catch (err) {
+    error.value = describeError(err, '检测更新失败，请检查网络连接')
+  } finally {
+    checkingUpdate.value = false
+  }
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -364,6 +395,81 @@ onBeforeUnmount(() => {
               重置
             </button>
           </div>
+        </div>
+      </div>
+
+      <!-- 版本与更新 -->
+      <div class="mt-6 rounded-xl border border-line p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm text-ink">版本与更新</h2>
+            <p class="mt-1 text-xs text-ink-faint">
+              当前版本：<span class="font-mono font-medium text-ink">v{{ CURRENT_APP_VERSION }}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-xs text-ink-soft transition-colors duration-150 ease-yy hover:border-accent/50 hover:text-ink disabled:opacity-50"
+            :disabled="checkingUpdate"
+            @click="onCheckUpdate"
+          >
+            <RefreshCw :size="14" :stroke-width="1.5" :class="checkingUpdate ? 'animate-spin' : ''" />
+            {{ checkingUpdate ? '检查中…' : '检查更新' }}
+          </button>
+        </div>
+
+        <!-- 发现新版本卡片 -->
+        <div
+          v-if="releaseInfo?.hasUpdate"
+          class="mt-4 rounded-xl border border-accent/40 bg-accent/[0.03] p-4 text-xs"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 font-medium text-accent">
+              <ArrowUpCircle :size="16" :stroke-width="1.8" />
+              <span>发现新版本 {{ releaseInfo.tagName }}</span>
+            </div>
+            <span v-if="releaseInfo.apkAsset?.size" class="font-mono text-[11px] text-ink-faint">
+              {{ formatFileSize(releaseInfo.apkAsset.size) }}
+            </span>
+          </div>
+
+          <div
+            v-if="releaseInfo.body"
+            class="mt-2.5 max-h-36 overflow-y-auto whitespace-pre-wrap rounded-lg bg-paper-mute/50 p-2.5 font-mono text-[11px] leading-relaxed text-ink-soft"
+          >
+            {{ releaseInfo.body }}
+          </div>
+
+          <div class="mt-4 flex flex-wrap items-center gap-2.5">
+            <a
+              v-if="releaseInfo.apkAsset"
+              :href="releaseInfo.apkAsset.acceleratedUrl"
+              target="_blank"
+              download
+              class="inline-flex items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-xs font-medium text-paper transition-opacity hover:opacity-90"
+            >
+              <Download :size="13" :stroke-width="2" />
+              立即下载更新 (高速镜像)
+            </a>
+            <a
+              v-if="releaseInfo.apkAsset"
+              :href="releaseInfo.apkAsset.downloadUrl"
+              target="_blank"
+              download
+              class="inline-flex items-center gap-1.5 rounded-full border border-line px-3.5 py-2 text-xs text-ink-soft hover:border-accent/40 hover:text-ink"
+            >
+              <ExternalLink :size="13" :stroke-width="1.5" />
+              官方源
+            </a>
+          </div>
+        </div>
+
+        <div
+          v-else-if="updateChecked && !releaseInfo?.hasUpdate"
+          class="mt-3 flex items-center gap-2 text-xs text-ink-mute"
+        >
+          <Check :size="14" :stroke-width="1.8" class="text-accent" />
+          <span>已是最新版本，无需更新。</span>
         </div>
       </div>
 

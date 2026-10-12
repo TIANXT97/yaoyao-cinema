@@ -4,7 +4,18 @@
 
 ---
 
-## [Unreleased]
+## [v1.0.3] - 2026-10-12
+
+### 应用内更新与分发 (App Self-Update & Release)
+- **应用内直连 GitHub 检查更新**：
+  - 设置页实装「版本与更新」模块，直接请求 GitHub 官方开放 API（`https://api.github.com/repos/TIANXT97/yaoyao-cinema/releases/latest`）。
+  - 支持语义化版本号比对，自动展示更新日志并提供 APK 下载链接。
+  - 内置高速镜像加速通道（`ghfast.top`），国内网络环境无需代理亦可满速直接拉取 APK。
+- **Android 构建版本升级**：
+  - 升格 Android 宿主版本号至 `versionCode 3`、`versionName "1.0.3"`。
+  - 同步提升后端与前端包版本为 `1.0.3`。
+- **原生 APK 自动化构建流水线**：
+  - 新增 GitHub Actions CI/CD 流水线（`.github/workflows/android-release.yml`），支持基于 Release Tag 触发原生编译并自动发布 APK 附件。
 
 ### 安全加固 (Security Hardening)
 - **刮削图片防 SSRF 加固**：
