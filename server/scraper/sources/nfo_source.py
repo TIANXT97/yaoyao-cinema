@@ -274,9 +274,14 @@ class NfoSource(ScraperSource):
 # NFO 生成（ARCHITECTURE.md 2.4.6）
 # ---------------------------------------------------------------------------
 
+#: XML 1.0 非法字符正则（ASCII 不可见控制字符与非法 Unicode 代用区字符）
+_ILLEGAL_XML_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+
 
 def _xml_text(value: Any) -> str:
-    return escape(str(value or ""))
+    """清洗非法 XML 控制字符并执行标准实体转义。"""
+    cleaned = _ILLEGAL_XML_CHARS.sub("", str(value or ""))
+    return escape(cleaned)
 
 
 def build_nfo_xml(

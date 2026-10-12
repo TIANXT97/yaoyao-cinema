@@ -243,6 +243,20 @@ class NfoParserTest(unittest.TestCase):
         self.assertIn("巨乳", parsed["tags"])
         self.assertEqual(parsed["poster_url"], "posters/v1.jpg")
 
+    def test_build_nfo_strips_illegal_xml_chars(self) -> None:
+        """测试构建 NFO 时非法 XML 1.0 控制字符被安全清洗，不引发解析器崩溃。"""
+        video = {
+            "id": "v-illegal",
+            "title": "测试\x00\x08标题\x0b",
+            "plot": "简介内容\x1f混入不可见控制字符\x0c与正常文字",
+            "bangou": "TEST-001",
+        }
+        xml_text = build_nfo_xml(video)
+        # 能够被标准 XML 解析器正常解析，不抛出 ParseError
+        parsed = parse_nfo_string(xml_text)
+        self.assertEqual(parsed["title"], "测试标题")
+        self.assertEqual(parsed["plot"], "简介内容混入不可见控制字符与正常文字")
+
 
 # ---------------------------------------------------------------------------
 # 3. 网络源 HTML 解析
