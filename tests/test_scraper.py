@@ -474,33 +474,33 @@ class ImageAsyncTest(unittest.IsolatedAsyncioTestCase):
         with Image.open(target) as img:
             self.assertEqual(img.size, (400, 600))
 
-    def test_ssrf_and_private_network_rejection(self) -> None:
+    async def test_ssrf_and_private_network_rejection(self) -> None:
         """测试图片下载安全防护：拦截内网回环、变形IP、内网域名等所有绕过向量。"""
         # A 组：字面标准内网 / 回环
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://127.0.0.1/admin.png")
+            await image_processor._validate_safe_url("http://127.0.0.1/admin.png")
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://localhost:8080/secret.jpg")
+            await image_processor._validate_safe_url("http://localhost:8080/secret.jpg")
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://192.168.31.1/router.jpg")
+            await image_processor._validate_safe_url("http://192.168.31.1/router.jpg")
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://169.254.169.254/latest/meta-data/")
+            await image_processor._validate_safe_url("http://169.254.169.254/latest/meta-data/")
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("ftp://example.com/pic.jpg")
+            await image_processor._validate_safe_url("ftp://example.com/pic.jpg")
 
         # B 组：Linux inet_aton 兼容的 IP 变形绕过向量
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://127.1/x.jpg")
+            await image_processor._validate_safe_url("http://127.1/x.jpg")
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://2130706433/x.jpg")
+            await image_processor._validate_safe_url("http://2130706433/x.jpg")
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://0x7f.1/x.jpg")
+            await image_processor._validate_safe_url("http://0x7f.1/x.jpg")
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://0177.0.0.1/x.jpg")
+            await image_processor._validate_safe_url("http://0177.0.0.1/x.jpg")
 
         # C 组：不可解析或内网域名
         with self.assertRaises(image_processor.ImageProcessingError):
-            image_processor._validate_safe_url("http://nas.internal/x.jpg")
+            await image_processor._validate_safe_url("http://nas.internal/x.jpg")
 
     async def test_redirect_to_private_network_rejection(self) -> None:
         """测试 302 重定向跨跳到内网地址被拦截防护。"""

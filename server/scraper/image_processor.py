@@ -12,12 +12,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import ipaddress
 import socket
 from pathlib import Path
 from typing import Any, Optional, Union
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -325,14 +326,15 @@ def save_original(img: Image.Image, video_id: str, suffix: str = "raw") -> str:
 # ---------------------------------------------------------------------------
 
 
-def _validate_safe_url(url: str) -> str:
+async def _validate_safe_url(url: str) -> str:
     """校验图片下载 URL 协议与目标主机，防范 SSRF 穿透内网设备与 DNS 重绑定。
 
     防御矩阵：
     1. 限制协议仅允许 http / https；
     2. 兼容并拦截所有畸形/变形 IPv4（如 127.1 / 2130706433 / 0x7f.1 / 0177.0.0.1）；
     3. 拦截标准 IPv4/IPv6 私有保留段与回环网段；
-    4. 对域名执行 getaddrinfo 解析，核验所有 A/AAAA 记录，禁止解析到内网或保留地址。
+    4. 对域名在线程池中异步执行 getaddrinfo 解析，核验所有 A/AAAA 记录，禁止解析到内网或保留地址。
+       （避免同步 DNS 阻塞单 worker 事件循环造成切片播放停摆）
     """
     parsed = urlsplit(url)
     if parsed.scheme.lower() not in ("http", "https"):
@@ -380,9 +382,11 @@ def _validate_safe_url(url: str) -> str:
     if lower_host in ("localhost", "localhost.localdomain"):
         raise ImageProcessingError(f"禁止访问本地回环主机: {hostname}")
 
-    # 4. 真实 DNS 解析校验所有解析地址（拦截内网域名如 nas.internal 及 xip.io 等重绑定域名）
+    # 4. 真实 DNS 解析校验所有解析地址（放入线程池异步执行，防冻结事件循环）
     try:
-        infos = socket.getaddrinfo(lower_host, None, proto=socket.IPPROTO_TCP)
+        infos = await asyncio.to_thread(
+            socket.getaddrinfo, lower_host, None, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP
+        )
         if not infos:
             raise ImageProcessingError(f"无法解析的主机: {hostname}")
         for info in infos:
@@ -406,7 +410,10 @@ def _validate_safe_url(url: str) -> str:
 
 
 async def _fetch_bytes(url: str | Path, client: Any | None = None) -> bytes:
-    """读取网络 URL 或本地图片文件为字节（安全逐跳校验 + 15MB 尺寸熔断）。"""
+    """读取网络 URL 或本地图片文件为字节（安全逐跳校验 + 连接复用 + 15MB 尺寸熔断）。
+
+    注意：图片下载出于 SSRF 防护红线强制使用独立的限制重定向客户端，调用方传入的 client 将被忽略。
+    """
     if isinstance(url, Path):
         return url.read_bytes()
     text = str(url)
@@ -418,25 +425,22 @@ async def _fetch_bytes(url: str | Path, client: Any | None = None) -> bytes:
         except ImportError as exc:  # pragma: no cover
             raise ImageProcessingError("httpx 未安装，无法下载图片") from exc
 
-        # 针对图片下载建立独立的、不盲从重定向的专用下载客户端，逐跳审计防 SSRF 穿透
+        # 针对图片下载建立独立的、不盲从重定向的专用下载客户端；将 client 提到重定向循环外以保留连接池复用
         max_redirects = 5
         current_url = text
-        for _ in range(max_redirects + 1):
-            _validate_safe_url(current_url)
-
-            # 单独创建独立单次请求 client，避免共享全局客户端自动 follow_redirects 导致的重定向内网穿透
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(15.0, connect=8.0),
-                follow_redirects=False,
-                headers={"User-Agent": "YaoyaoCinema/1.0 ImageDownloader"},
-            ) as dl_client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=8.0),
+            follow_redirects=False,
+            headers={"User-Agent": "YaoyaoCinema/1.0 ImageDownloader"},
+        ) as dl_client:
+            for _ in range(max_redirects + 1):
+                await _validate_safe_url(current_url)
                 try:
                     async with dl_client.stream("GET", current_url) as response:
                         if response.is_redirect:
                             location = response.headers.get("location")
                             if not location:
                                 raise ImageProcessingError(f"重定向缺少 Location 头: {current_url}")
-                            from urllib.parse import urljoin
                             current_url = urljoin(current_url, location)
                             continue
 
