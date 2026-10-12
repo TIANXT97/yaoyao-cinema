@@ -26,7 +26,7 @@ from .utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
-VERSION = "1.0.0"
+VERSION = "1.0.3"
 
 
 class SPAStaticFiles(StaticFiles):
