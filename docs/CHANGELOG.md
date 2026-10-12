@@ -7,9 +7,9 @@
 ## [Unreleased]
 
 ### 安全加固 (Security Hardening)
-- **刮削图片防 SSRF 全防护**：
+- **刮削图片防 SSRF 加固**：
   - 引入 `socket.inet_aton` 归一化层，阻断 Linux 环境下通过十进制、十六进制或点分缩写（如 `127.1`、`0x7f.1`、`2130706433`）伪造内网/回环 IP 的绕过攻击。
-  - 强制执行 `socket.getaddrinfo` 预解析，拦截指向内网私有地址的恶意域名及 DNS 重绑定（DNS Rebinding）。
+  - 在异步线程池中执行 `socket.getaddrinfo` 预解析，拦截指向内网私有地址的域名，且不阻塞主事件循环以保障切片流播放流畅。
   - 下载链路改用独立客户端并禁用自动重定向（`follow_redirects=False`），实现逐跳 Location 递归 SSRF 审查（最大 5 跳），防止 302 越权穿透至内网或云厂商元数据接口（`169.254.169.254`）。
   - 增加 15 MB 流式分块下载上限截断与 Pillow 30,000,000 像素解压上限，防御超大文件耗尽内存及像素解压炸弹。
   - 镜像回退策略剔除与失败主站域名相同的镜像条目，降低无效重试开销。
@@ -24,7 +24,7 @@
 
 ### 元数据与刮削流水线 (Metadata & Scraper)
 - **XML 1.0 非法字符清洗**：
-  - 在 `nfo_source.py` 中引入 `_ILLEGAL_XML_CHARS` 正则，在 NFO XML 生成时自动剥除 `\x00-\x08\x0b\x0c\x0e-\x1f￾￿` 等控制字符，避免脏数据导致下游解析器抛出 `ParseError`。
+  - 在 `nfo_source.py` 中引入 `_ILLEGAL_XML_CHARS` 正则，在 NFO XML 生成时自动剥除控制字符（如 `\x00-\x08\x0b\x0c\x0e-\x1f￾￿` 等），避免脏数据导致下游解析器抛出 `ParseError`。
 
 ### 移动端与客户端容器 (Mobile & Client)
 - **Capacitor 原生网关自动回退**：
@@ -75,3 +75,4 @@
   - 集成 Capacitor 7.x 原生壳，接入 Media3 / ExoPlayer 1.5.1 硬解播放器内核。
 - **生产容器化**：
   - 交付一体化 `docker-compose.yml`，打通宿主机媒体库挂载与 SQLite WAL 持久化。
+

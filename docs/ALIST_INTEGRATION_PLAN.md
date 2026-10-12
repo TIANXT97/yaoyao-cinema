@@ -277,98 +277,61 @@ async def fetch_alist_raw_url(fs_path: str, *, timeout: float | None = None) -> 
 
 ```python
 # server/api/stream.py
-from server.services.alist_service import fetch_alist_raw_url
+from typing import AsyncIterator
+from pathlib import Path
 import httpx
-from datetime import datetime, timezone
-from fastapi import APIRouter, Request, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse, StreamingResponse
-from server.config import settings
-from server.models import Video  # 假设的 ORM 模型
-from server.utils.local_stream import serve_local_range_stream  # 原有的 206 切片核心逻辑
 
-router = APIRouter(prefix="/api/stream", tags=["stream"])
+from .. import config
+from ..database import Database, get_db
+from ..services.alist_service import fetch_alist_raw_url
 
-ALIST_BASE_URL = getattr(settings, "ALIST_BASE_URL", "http://alist:5244").rstrip("/")
-ALIST_TOKEN = getattr(settings, "ALIST_TOKEN", "")
+router = APIRouter(tags=["stream"])
 
-async def get_alist_raw_url(cloud_fs_path: str) -> str:
-    """向 Alist 请求真实机房 302 签名重定向直链"""
-    url = f"{ALIST_BASE_URL}/api/fs/get"
-    payload = {
-        "path": cloud_fs_path,
-        "password": ""
-    }
-    headers = {"Authorization": ALIST_TOKEN} if ALIST_TOKEN else {}
-    
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        try:
-            resp = await client.post(url, json=payload, headers=headers)
-            res_data = resp.json()
-            if res_data.get("code") == 200:
-                raw_url = res_data.get("data", {}).get("raw_url")
-                if raw_url:
-                    return raw_url
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Alist 获取直链失败: {res_data.get('message')}"
-            )
-        except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail=f"无法连接 Alist 内部中继服务: {str(e)}"
-            )
-
-@router.get("/{video_id}")
+@router.get("/stream/{video_id}")
 async def stream_video(
-    video_id: int,
+    video_id: str,
     request: Request,
-    range: str = Header(None)
+    db: Database = Depends(get_db),
 ):
     """
     双轨自适应流媒体入口：
-    - storage_type == 'local' -> HTTP 206 本地极速字节切片
-    - storage_type == 'cloud' -> HTTP 302 重定向至网盘机房原画直链
+    - 本地视频 -> HTTP 206 零转码极速字节切片
+    - 云端视频 (storage_type == 'cloud') -> 向 Alist 换取直链并返回 HTTP 302 重定向
     """
-    video = await Video.get_or_none(id=video_id)
+    video = await db.get_video(video_id)
     if not video:
         raise HTTPException(status_code=404, detail="影视资源不存在")
 
-    # ================= 场景 A：本地私家影库 (HTTP 206 分块切片) =================
-    if getattr(video, "storage_type", "local") == "local":
-        local_path = video.local_file_path  # 映射在 /media/local 下的真实路径
-        return await serve_local_range_stream(local_path, range_header=range)
-
     # ================= 场景 B：云端直链重定向 (HTTP 302 Redirect) =================
-    elif video.storage_type == "cloud":
-        if not video.cloud_fs_path:
+    if video.get("storage_type") == "cloud" or video.get("cloud_fs_path"):
+        cloud_fs_path = video.get("cloud_fs_path")
+        if not cloud_fs_path:
             raise HTTPException(status_code=400, detail="云端路径未绑定，无法解析直链")
 
-        # 检查带签名的 Direct URL 缓存是否有效 (保留 30 分钟安全阈值)
-        now_ts = int(datetime.now(timezone.utc).timestamp())
-        if video.direct_url_cache and video.direct_url_expire > (now_ts + 1800):
-            target_url = video.direct_url_cache
-        else:
-            # 穿透 Alist 嗅探大厂真实落地签名直链
-            target_url = await get_alist_raw_url(video.cloud_fs_path)
-            # 异步写回缓存机制（假设直链有效期通常为 2~4 小时）
-            video.direct_url_cache = target_url
-            video.direct_url_expire = now_ts + 7200
-            await video.save(update_fields=["direct_url_cache", "direct_url_expire"])
+        try:
+            target_url = await fetch_alist_raw_url(cloud_fs_path)
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="网盘直链换取超时，请稍后重试")
+        except Exception:
+            raise HTTPException(status_code=502, detail="云端直链获取失败")
+
+        if not target_url:
+            raise HTTPException(status_code=502, detail="云端直链为空或失效")
 
         # 核心：反手下发 302 重定向给客户端
-        # 注意：此处使用 302 Found（非 301 永久，亦非部分旧客户端不支持的 307）
         return RedirectResponse(
             url=target_url,
-            status_code=status.HTTP_302_FOUND,
+            status_code=302,
             headers={
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
                 "Cache-Control": "no-cache, no-store, must-revalidate"
             }
         )
 
-    else:
-        raise HTTPException(status_code=500, detail="未知存储类型，系统拒绝处理")
+    # ================= 场景 A：本地私家影库 (HTTP 206 分块切片) =================
+    # ... 后续保留 file_iterator 进行 206 Range 分块传输 ...
 ```
 
 ---
