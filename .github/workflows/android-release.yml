@@ -55,7 +55,24 @@ jobs:
         run: |
           chmod +x android/gradlew
 
+      - name: 准备 Release 签名证书 (Setup Keystore)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/release.keystore
+            echo "Release 签名密钥已恢复"
+          else
+            echo "未检测到 KEYSTORE_BASE64，将生成临时统一自签名"
+            keytool -genkeypair -v -keystore android/release.keystore -alias yaoyao -keyalg RSA -keysize 2048 -validity 10000 -storepass "yaoyao123456" -keypass "yaoyao123456" -dname "CN=Yaoyao Cinema, OU=Yaoyao, O=Yaoyao, L=Home, ST=Home, C=CN"
+          fi
+
       - name: 编译 Release APK (Assemble Release APK)
+        env:
+          ANDROID_KEYSTORE_PATH: "release.keystore"
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'yaoyao123456' }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'yaoyao' }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'yaoyao123456' }}
         run: |
           cd android
           ./gradlew assembleRelease --no-daemon
