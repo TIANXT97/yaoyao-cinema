@@ -474,6 +474,21 @@ class ImageAsyncTest(unittest.IsolatedAsyncioTestCase):
         with Image.open(target) as img:
             self.assertEqual(img.size, (400, 600))
 
+    def test_ssrf_and_private_network_rejection(self) -> None:
+        """测试图片下载安全防护：拦截内网回环与私有网段地址。"""
+        with self.assertRaises(image_processor.ImageProcessingError):
+            image_processor._validate_safe_url("http://127.0.0.1/admin.png")
+        with self.assertRaises(image_processor.ImageProcessingError):
+            image_processor._validate_safe_url("http://localhost:8080/secret.jpg")
+        with self.assertRaises(image_processor.ImageProcessingError):
+            image_processor._validate_safe_url("http://192.168.31.1/router.jpg")
+        with self.assertRaises(image_processor.ImageProcessingError):
+            image_processor._validate_safe_url("ftp://example.com/pic.jpg")
+
+        # 合法外部地址放行
+        safe = image_processor._validate_safe_url("https://images.example.com/poster.jpg")
+        self.assertEqual(safe, "https://images.example.com/poster.jpg")
+
 
 # ---------------------------------------------------------------------------
 # 5. 流水线端到端

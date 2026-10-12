@@ -13,8 +13,11 @@
 from __future__ import annotations
 
 import io
+import ipaddress
+import socket
 from pathlib import Path
 from typing import Any, Optional, Union
+from urllib.parse import urlsplit
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -22,6 +25,12 @@ from .. import config
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+#: 防解压像素炸弹上限（3000万像素）
+Image.MAX_IMAGE_PIXELS = 30_000_000
+
+#: 单张图片下载硬上限（15 MB）
+MAX_IMAGE_DOWNLOAD_BYTES = 15 * 1024 * 1024
 
 ImageSource = Union[str, Path, bytes, bytearray, Image.Image]
 
@@ -316,14 +325,42 @@ def save_original(img: Image.Image, video_id: str, suffix: str = "raw") -> str:
 # ---------------------------------------------------------------------------
 
 
+def _validate_safe_url(url: str) -> str:
+    """校验图片下载 URL 协议与目标主机，防范 SSRF 穿透内网设备。"""
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ImageProcessingError(f"不支持的图片 URL 协议: {parsed.scheme}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ImageProcessingError(f"非法的图片 URL 主机: {url}")
+
+    # 拦截常见本地及回环名称
+    lower_host = hostname.lower()
+    if lower_host in ("localhost", "127.0.0.1", "::1"):
+        raise ImageProcessingError(f"禁止访问内网或本地地址: {hostname}")
+
+    # 尝试按 IP 判定是否为私有/内网保留网段
+    try:
+        ip = ipaddress.ip_address(lower_host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+            raise ImageProcessingError(f"禁止访问私有内网 IP: {hostname}")
+    except ValueError:
+        # 非原始 IP 格式，暂允许域名
+        pass
+
+    return url
+
+
 async def _fetch_bytes(url: str | Path, client: Any | None = None) -> bytes:
-    """读取网络 URL 或本地图片文件为字节。"""
+    """读取网络 URL 或本地图片文件为字节（流式下载 + 15MB 尺寸熔断）。"""
     if isinstance(url, Path):
         return url.read_bytes()
     text = str(url)
     if text.startswith(("http://", "https://", "//")):
         if text.startswith("//"):
             text = "https:" + text
+        text = _validate_safe_url(text)
         try:
             import httpx
         except ImportError as exc:  # pragma: no cover
@@ -333,11 +370,20 @@ async def _fetch_bytes(url: str | Path, client: Any | None = None) -> bytes:
 
             client = await get_client()
         try:
-            response = await client.get(text)
-            response.raise_for_status()
+            async with client.stream("GET", text) as response:
+                response.raise_for_status()
+                chunks = []
+                downloaded = 0
+                async for chunk in response.aiter_bytes():
+                    downloaded += len(chunk)
+                    if downloaded > MAX_IMAGE_DOWNLOAD_BYTES:
+                        raise ImageProcessingError(
+                            f"图片体积超出安全上限 ({MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)}MB): {text}"
+                        )
+                    chunks.append(chunk)
+                return b"".join(chunks)
         except httpx.HTTPError as exc:
             raise ImageProcessingError(f"图片下载失败 {text}: {exc}") from exc
-        return response.content
 
     path = Path(text)
     if path.is_file():
