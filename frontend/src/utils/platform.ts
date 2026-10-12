@@ -24,6 +24,22 @@ export function isAndroid(): boolean {
   return isBrowser() && /Android/i.test(navigator.userAgent)
 }
 
+/** 是否处于 Capacitor 原生移动容器中。 */
+export function isCapacitorNative(): boolean {
+  if (!isBrowser()) return false
+  const w = window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }
+  if (w.Capacitor?.isNativePlatform) {
+    try {
+      return w.Capacitor.isNativePlatform()
+    } catch {
+      // 容错处理
+    }
+  }
+  // Android / iOS Capacitor 容器环境下的经典协议或主机特征
+  const loc = window.location
+  return loc.protocol === 'capacitor:' || loc.hostname === 'localhost' && /Android/i.test(navigator.userAgent)
+}
+
 /** 是否已作为 PWA 独立窗口运行。 */
 export function isStandalonePWA(): boolean {
   if (!isBrowser()) return false

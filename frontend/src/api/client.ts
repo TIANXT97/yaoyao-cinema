@@ -6,9 +6,13 @@
  */
 
 import type { ApiErrorPayload, QueryParams } from '@/types/api'
+import { isCapacitorNative } from '@/utils/platform'
 
 /** localStorage 中持久化的自定义 API 基址键名。 */
 export const API_BASE_STORAGE_KEY = 'yaoyao.apiBase'
+
+/** 局域网 NAS 默认标准网关（移动端/原生容器免配置开箱即用兜底）。 */
+export const DEFAULT_LAN_API_BASE = 'http://192.168.31.235:9900/api'
 
 /** 规范化基址：去空白、去尾部斜杠；空串视为未配置。 */
 function normalizeBase(value: string | null | undefined): string {
@@ -26,7 +30,8 @@ let cachedApiBase: string | null = null
  * 解析 API 基址，优先级：
  * 1. ``localStorage['yaoyao.apiBase']``（用户在设置页填写，适配安卓 / 跨设备）；
  * 2. ``import.meta.env.VITE_API_BASE``（构建期注入）；
- * 3. 同源相对路径 ``/api``。
+ * 3. Capacitor 原生移动容器环境下兜底回退内网直连 ``http://192.168.31.235:9900/api``；
+ * 4. 普通浏览器环境同源相对路径 ``/api``。
  */
 export function resolveApiBase(): string {
   if (cachedApiBase !== null) return cachedApiBase
@@ -39,7 +44,20 @@ export function resolveApiBase(): string {
       stored = null
     }
   }
-  cachedApiBase = normalizeBase(stored) || ENV_BASE || '/api'
+
+  const explicit = normalizeBase(stored) || ENV_BASE
+  if (explicit) {
+    cachedApiBase = explicit
+    return cachedApiBase
+  }
+
+  // Capacitor 原生移动容器首屏兜底：防止请求打向本地 http://localhost 导致空白
+  if (isCapacitorNative()) {
+    cachedApiBase = DEFAULT_LAN_API_BASE
+    return cachedApiBase
+  }
+
+  cachedApiBase = '/api'
   return cachedApiBase
 }
 
