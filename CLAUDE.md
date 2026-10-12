@@ -34,10 +34,10 @@
 
 在仓库根目录下执行所有操作：
 
-### Step 1. 同步代码
+### Step 1. 同步与派生分支
 ```bash
 git fetch origin main
-git status
+git checkout -b feat/<功能描述> origin/main
 ```
 
 ### Step 2. 修改代码与开发
@@ -58,18 +58,21 @@ npm run type-check
 cd ..
 ```
 
-### Step 4. Git 提交与推送
+### Step 4. 提交、推送分支并创建 PR
 * commit 规范：`type(scope): 中文简述`
-* 推送协议：原生 SSH (`git@github.com:TIANXT97/yaoyao-cinema.git`)
-```bash
+* 推送至特性分支并用 `gh` 创建 PR 到 `main`：
+```powershell
 git add <修改文件>
 git commit -m "feat(stream): 支持新的切片预载策略"
-git push origin main
+git push origin feat/<功能描述>
+
+# 创建 PR（工位已登录 gh CLI）
+& 'E:\AI工具\gh\bin\gh.exe' pr create --title "feat(stream): 支持新的切片预载策略" --body "详述改动内容..."
 ```
 
-### Step 5. 汇报话术（标准降级规范）
-push 完成后，**不要**自行登录 NAS 构建发版。统一汇报并输出标准提示：
-> ✅ push 完成。是否要 NAS 部署？默认 **否**。
+### Step 5. 汇报话术（交接给夭夭）
+PR 创建完成后，**不要**自行 merge 或登录 NAS 构建。合并与发版由 NAS 侧的夭夭处理：
+> ✅ 特性分支已推送并创建 PR。合并到 main 与 NAS 部署交由夭夭处理。
 
 ---
 
