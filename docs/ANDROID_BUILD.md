@@ -61,7 +61,31 @@ cd ..
 
 ---
 
-## 4. 关键配置说明
+## 4. GitHub Actions 云端自动构建与发版 (推荐)
+
+仓库已集成 `.github/workflows/android-release.yml`，无需在工位配置重量级 Android SDK，即可在云端全自动打包装箱：
+
+### 触发方式 1：打 Tag 自动发版
+当项目需要发版时，只需推送版本标签：
+```bash
+git tag v1.0.3
+git push origin v1.0.3
+```
+GitHub Actions 会自动：
+1. 检出代码并安装 Node.js 20 与 OpenJDK 21 环境；
+2. 构建前端单页产物并执行 `npx cap sync android`；
+3. 执行 `./gradlew assembleRelease` 编译原生 APK；
+4. 自动生成 GitHub Release 并将 `yaoyao-cinema-v1.0.3.apk` 作为附件资产挂载发布。
+
+### 触发方式 2：使用 gh CLI 手动触发流水线
+随时在工位触发云端编译：
+```powershell
+& 'E:\AI工具\gh\bin\gh.exe' workflow run android-release.yml -f tag_name=v1.0.3
+```
+
+---
+
+## 5. 关键配置说明
 
 1. **明文流量传输许可**（局域网 HTTP 直链播放）：
    * 配置文件位于 `android/app/src/main/res/xml/network_security_config.xml`。
