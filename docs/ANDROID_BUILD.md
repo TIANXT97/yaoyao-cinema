@@ -57,11 +57,30 @@ cd ..
 
 构建生成的 APK 文件位于：
 * **Debug APK**：`android/app/build/outputs/apk/debug/app-debug.apk`
-* **Release APK**：`android/app/build/outputs/apk/release/app-release-unsigned.apk`
+* **Release APK**：`android/app/build/outputs/apk/release/app-release.apk`（若未配签名则生成 `app-release-unsigned.apk`）
 
 ---
 
-## 4. GitHub Actions 云端自动构建与发版 (推荐)
+## 4. APK 签名规范与踩坑记录 (Release Signing)
+
+### 4.1 签名必要性：解析软件包时出现问题 (33) `packageInfo is null`
+* **现象**：从 Release 下载的未签名 APK（`app-release-unsigned.apk`）在 Android 11+ 设备上安装时，系统安装器直接报错：`解析软件包时出现问题。(33) 详细信息: packageInfo is null`。
+* **原因**：现代 Android 核心安全机制要求必须包含合法的 V2/V3 完整性签名块，缺省签名或纯 V1 签名的 Release APK 会被系统安装器底层校验直接拒绝并判定包信息无效。
+* **规避**：发版产物必须通过正式 Keystore 进行 Release 签名（`signingConfig signingConfigs.release`），严禁向用户分发未签名的 APK。
+
+### 4.2 Gradle 多工程相对路径解析避坑
+在 Gradle 多项目架构下，`android/app/build.gradle` 属于子工程：
+* `file(path)` 默认以 `android/app/` 为基准目录。
+* CI 环境若将密钥恢复至 `android/release.keystore`（根目录），传递环境变量 `ANDROID_KEYSTORE_PATH="release.keystore"` 会导致 `file(...)` 找不到文件，抛出：
+  ```
+  SigningConfig "release" is missing required property "storeFile".
+  ```
+* **稳健写法**：
+  在 `android/app/build.gradle` 中优先通过 `rootProject.file(...)` 解析，若不存在再回退到 `file(...)`；同时在 GitHub Actions 中将密钥同时双写到 `android/` 与 `android/app/`，确保双重保险。
+
+---
+
+## 5. GitHub Actions 云端自动构建与发版 (推荐)
 
 仓库已集成 `.github/workflows/android-release.yml`，无需在工位配置重量级 Android SDK，即可在云端全自动打包装箱：
 
@@ -85,7 +104,7 @@ GitHub Actions 会自动：
 
 ---
 
-## 5. 关键配置说明
+## 6. 关键配置说明
 
 1. **明文流量传输许可**（局域网 HTTP 直链播放）：
    * 配置文件位于 `android/app/src/main/res/xml/network_security_config.xml`。

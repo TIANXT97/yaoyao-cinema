@@ -124,6 +124,9 @@ SQLite 数据库文件位于 NAS 宿主机 `/vol1/1000/vibe-projects/yaoyao-cine
   执行 docker compose 必须始终携带服务名 `yaoyao-cinema`，严禁裸跑 `docker compose up -d`。
 * **坑 #5：Git 历史安全红线**  
   禁止 `--force` 或 `reset --hard` 覆盖 main 分支历史。唯一例外见 `AGENTS.md` §3.4「凭据与敏感资产清洗」紧急豁免。
+* **坑 #6：Android Release APK 未签名导致安装失败 (33)**  
+  Android 11+ 系统安装器在解析未签名的 Release APK 时会直接报错 `解析软件包时出现问题。(33) 详细信息: packageInfo is null`。
+  发版前必须确保 Gradle `signingConfigs.release` 生效（且子工程 `android/app/build.gradle` 需通过 `rootProject.file(...)` 解析位于根工程的 keystore 路径，避免相对路径失配导致构建跳过或缺少 `storeFile` 失败）。详见 `docs/ANDROID_BUILD.md` §4。
 
 ---
 
