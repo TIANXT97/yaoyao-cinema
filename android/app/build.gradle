@@ -19,8 +19,22 @@ android {
     }
     signingConfigs {
         release {
-            if (System.getenv("ANDROID_KEYSTORE_PATH") != null && file(System.getenv("ANDROID_KEYSTORE_PATH")).exists()) {
-                storeFile file(System.getenv("ANDROID_KEYSTORE_PATH"))
+            def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            def keystoreFile = null
+            if (keystorePath) {
+                // 优先检查相对于 rootProject (android/) 的路径，再检查相对于 subproject (android/app/) 的路径，或绝对路径
+                keystoreFile = rootProject.file(keystorePath)
+                if (!keystoreFile.exists()) {
+                    keystoreFile = file(keystorePath)
+                }
+            } else if (file("release.keystore").exists()) {
+                keystoreFile = file("release.keystore")
+            } else if (rootProject.file("release.keystore").exists()) {
+                keystoreFile = rootProject.file("release.keystore")
+            }
+
+            if (keystoreFile != null && keystoreFile.exists()) {
+                storeFile keystoreFile
                 storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: "yaoyao123456"
                 keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "yaoyao"
                 keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: "yaoyao123456"

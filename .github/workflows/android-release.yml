@@ -59,12 +59,15 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
+          mkdir -p android/app
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > android/release.keystore
-            echo "Release 签名密钥已恢复"
+            cp android/release.keystore android/app/release.keystore
+            echo "Release 签名密钥已恢复至 android/ 与 android/app/"
           else
             echo "未检测到 KEYSTORE_BASE64，将生成临时统一自签名"
             keytool -genkeypair -v -keystore android/release.keystore -alias yaoyao -keyalg RSA -keysize 2048 -validity 10000 -storepass "yaoyao123456" -keypass "yaoyao123456" -dname "CN=Yaoyao Cinema, OU=Yaoyao, O=Yaoyao, L=Home, ST=Home, C=CN"
+            cp android/release.keystore android/app/release.keystore
           fi
 
       - name: 编译 Release APK (Assemble Release APK)
