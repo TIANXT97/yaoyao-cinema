@@ -326,7 +326,14 @@ def save_original(img: Image.Image, video_id: str, suffix: str = "raw") -> str:
 
 
 def _validate_safe_url(url: str) -> str:
-    """校验图片下载 URL 协议与目标主机，防范 SSRF 穿透内网设备。"""
+    """校验图片下载 URL 协议与目标主机，防范 SSRF 穿透内网设备与 DNS 重绑定。
+
+    防御矩阵：
+    1. 限制协议仅允许 http / https；
+    2. 兼容并拦截所有畸形/变形 IPv4（如 127.1 / 2130706433 / 0x7f.1 / 0177.0.0.1）；
+    3. 拦截标准 IPv4/IPv6 私有保留段与回环网段；
+    4. 对域名执行 getaddrinfo 解析，核验所有 A/AAAA 记录，禁止解析到内网或保留地址。
+    """
     parsed = urlsplit(url)
     if parsed.scheme.lower() not in ("http", "https"):
         raise ImageProcessingError(f"不支持的图片 URL 协议: {parsed.scheme}")
@@ -335,55 +342,119 @@ def _validate_safe_url(url: str) -> str:
     if not hostname:
         raise ImageProcessingError(f"非法的图片 URL 主机: {url}")
 
-    # 拦截常见本地及回环名称
     lower_host = hostname.lower()
-    if lower_host in ("localhost", "127.0.0.1", "::1"):
-        raise ImageProcessingError(f"禁止访问内网或本地地址: {hostname}")
 
-    # 尝试按 IP 判定是否为私有/内网保留网段
+    # 1. 尝试使用 socket.inet_aton 归一化解析（堵死 Linux glibc 兼容的 127.1 / 0x7f.1 / 整数十进制 IP）
     try:
-        ip = ipaddress.ip_address(lower_host)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
-            raise ImageProcessingError(f"禁止访问私有内网 IP: {hostname}")
-    except ValueError:
-        # 非原始 IP 格式，暂允许域名
+        raw_bytes = socket.inet_aton(lower_host)
+        ip = ipaddress.IPv4Address(raw_bytes)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise ImageProcessingError(f"禁止访问内网或保留 IP: {hostname} -> {ip}")
+    except (OSError, ValueError):
         pass
+
+    # 2. 尝试标准 IPv6 / 括号 IP
+    clean_host = lower_host.strip("[]")
+    try:
+        ip = ipaddress.ip_address(clean_host)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise ImageProcessingError(f"禁止访问内网或保留 IP: {hostname} -> {ip}")
+    except ValueError:
+        pass
+
+    # 3. 拦截常见本地别名
+    if lower_host in ("localhost", "localhost.localdomain"):
+        raise ImageProcessingError(f"禁止访问本地回环主机: {hostname}")
+
+    # 4. 真实 DNS 解析校验所有解析地址（拦截内网域名如 nas.internal 及 xip.io 等重绑定域名）
+    try:
+        infos = socket.getaddrinfo(lower_host, None, proto=socket.IPPROTO_TCP)
+        if not infos:
+            raise ImageProcessingError(f"无法解析的主机: {hostname}")
+        for info in infos:
+            resolved_ip_str = info[4][0]
+            resolved_ip = ipaddress.ip_address(resolved_ip_str)
+            if (
+                resolved_ip.is_private
+                or resolved_ip.is_loopback
+                or resolved_ip.is_link_local
+                or resolved_ip.is_multicast
+                or resolved_ip.is_reserved
+                or resolved_ip.is_unspecified
+            ):
+                raise ImageProcessingError(
+                    f"目标域名解析到内网/保留地址: {hostname} -> {resolved_ip}"
+                )
+    except socket.gaierror as exc:
+        raise ImageProcessingError(f"域名解析失败: {hostname}") from exc
 
     return url
 
 
 async def _fetch_bytes(url: str | Path, client: Any | None = None) -> bytes:
-    """读取网络 URL 或本地图片文件为字节（流式下载 + 15MB 尺寸熔断）。"""
+    """读取网络 URL 或本地图片文件为字节（安全逐跳校验 + 15MB 尺寸熔断）。"""
     if isinstance(url, Path):
         return url.read_bytes()
     text = str(url)
     if text.startswith(("http://", "https://", "//")):
         if text.startswith("//"):
             text = "https:" + text
-        text = _validate_safe_url(text)
         try:
             import httpx
         except ImportError as exc:  # pragma: no cover
             raise ImageProcessingError("httpx 未安装，无法下载图片") from exc
-        if client is None:
-            from ..utils.http_client import get_client
 
-            client = await get_client()
-        try:
-            async with client.stream("GET", text) as response:
-                response.raise_for_status()
-                chunks = []
-                downloaded = 0
-                async for chunk in response.aiter_bytes():
-                    downloaded += len(chunk)
-                    if downloaded > MAX_IMAGE_DOWNLOAD_BYTES:
-                        raise ImageProcessingError(
-                            f"图片体积超出安全上限 ({MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)}MB): {text}"
-                        )
-                    chunks.append(chunk)
-                return b"".join(chunks)
-        except httpx.HTTPError as exc:
-            raise ImageProcessingError(f"图片下载失败 {text}: {exc}") from exc
+        # 针对图片下载建立独立的、不盲从重定向的专用下载客户端，逐跳审计防 SSRF 穿透
+        max_redirects = 5
+        current_url = text
+        for _ in range(max_redirects + 1):
+            _validate_safe_url(current_url)
+
+            # 单独创建独立单次请求 client，避免共享全局客户端自动 follow_redirects 导致的重定向内网穿透
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(15.0, connect=8.0),
+                follow_redirects=False,
+                headers={"User-Agent": "YaoyaoCinema/1.0 ImageDownloader"},
+            ) as dl_client:
+                try:
+                    async with dl_client.stream("GET", current_url) as response:
+                        if response.is_redirect:
+                            location = response.headers.get("location")
+                            if not location:
+                                raise ImageProcessingError(f"重定向缺少 Location 头: {current_url}")
+                            from urllib.parse import urljoin
+                            current_url = urljoin(current_url, location)
+                            continue
+
+                        response.raise_for_status()
+                        chunks = []
+                        downloaded = 0
+                        async for chunk in response.aiter_bytes():
+                            downloaded += len(chunk)
+                            if downloaded > MAX_IMAGE_DOWNLOAD_BYTES:
+                                raise ImageProcessingError(
+                                    f"图片体积超出安全上限 ({MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)}MB): {text}"
+                                )
+                            chunks.append(chunk)
+                        return b"".join(chunks)
+                except httpx.HTTPError as exc:
+                    raise ImageProcessingError(f"图片下载失败 {current_url}: {exc}") from exc
+
+        raise ImageProcessingError(f"图片下载重定向次数过多 (>5): {text}")
 
     path = Path(text)
     if path.is_file():
