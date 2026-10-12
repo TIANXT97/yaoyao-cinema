@@ -264,8 +264,12 @@ class ScraperSource(abc.ABC):
             response.raise_for_status()
             return response
         except httpx.HTTPError as exc:
-            # 反爬兜底：尝试镜像站点
+            # 反爬兜底：尝试镜像站点（自动剔除已发生故障的原请求 host）
+            parsed_origin = urlsplit(url)
             for mirror in self.mirrors:
+                parsed_mirror = urlsplit(mirror if "://" in mirror else f"//{mirror.lstrip('/')}")
+                if (parsed_mirror.netloc or parsed_mirror.path) == parsed_origin.netloc:
+                    continue
                 alt = mirror_url(url, mirror)
                 try:
                     response = await client.get(alt, **request_kwargs)
