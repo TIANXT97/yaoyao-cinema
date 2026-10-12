@@ -263,8 +263,21 @@ class AlistScanner:
 
 ### 5.1 流媒体核心改造完整实现
 
+> **落地实装说明（PR #12 对齐）**：
+> 工程实现已将 Alist 直链解析与缓存提取为独立服务模块 `server/services/alist_service.py`。
+> - 配置参数：`config.ALIST_TIMEOUT = 4.0`（秒，防网盘冷启动挂死 worker）、`config.ALIST_CACHE_TTL = 30.0`（秒，过滤播放器首片探测与 HEAD 重试）。
+> - 请求超时或中继不可达时，向客户端明确抛出 `HTTP 504 Gateway Timeout`。
+
+```python
+# server/services/alist_service.py (已实装)
+async def fetch_alist_raw_url(fs_path: str, *, timeout: float | None = None) -> Optional[str]:
+    # 优先读 30s TTL 内存缓存，未命中则请求 Alist POST /api/fs/get (硬超时 4.0s)
+    ...
+```
+
 ```python
 # server/api/stream.py
+from server.services.alist_service import fetch_alist_raw_url
 import httpx
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException, status, Header
