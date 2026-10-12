@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -81,7 +82,11 @@ def parse_range(range_header: str, file_size: int) -> tuple[int, int]:
 async def file_iterator(
     path: Path, start: int, end: int
 ) -> AsyncIterator[bytes]:
-    """异步文件分块读取生成器（ARCHITECTURE.md 2.3.2）。"""
+    """异步文件分块读取生成器（ARCHITECTURE.md 2.3.2）。
+
+    优雅处理客户端中断：播放器在 Seek 拖动进度或页面切出时会主动断开 TCP 连接，
+    捕获连接中断与取消异常并静默退出，避免日志产生 ClientDisconnect/BrokenPipeError 刷屏。
+    """
     async with aiofiles.open(path, "rb") as handle:
         await handle.seek(start)
         remaining = end - start + 1
@@ -91,7 +96,11 @@ async def file_iterator(
             if not chunk:
                 break
             remaining -= len(chunk)
-            yield chunk
+            try:
+                yield chunk
+            except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
+                logger.debug("客户端已断开视频流连接 path=%s remaining=%d", path, remaining)
+                break
 
 
 @router.head("/stream/{video_id}", include_in_schema=False)
