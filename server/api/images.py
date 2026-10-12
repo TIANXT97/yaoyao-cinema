@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 
 from .. import config
+from ..services.alist_service import fetch_alist_raw_url
 from ..utils.http_client import get_client
 from ..utils.logger import get_logger
 
@@ -35,22 +37,13 @@ def _cloud_fs_path(cloud_url: str) -> str:
 async def _cloud_redirect(cloud_url: str) -> RedirectResponse:
     """向 Alist 换取云端海报真实直链，直接 302 直通。"""
     fs_path = _cloud_fs_path(cloud_url)
-    headers: dict[str, str] = {}
-    if config.ALIST_TOKEN:
-        headers["Authorization"] = config.ALIST_TOKEN
-    raw_url: str | None = None
     try:
-        client = await get_client()
-        response = await client.post(
-            f"{config.ALIST_BASE_URL}/api/fs/get",
-            json={"path": fs_path, "password": ""},
-            headers=headers,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        raw_url = (payload.get("data") or {}).get("raw_url")
-    except Exception as exc:  # noqa: BLE001 - 云端不可达统一降级为 502
-        logger.error("Alist 海报直链获取失败 %s: %s", fs_path, exc)
+        raw_url = await fetch_alist_raw_url(fs_path)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="云端海报直链获取超时")
+    except Exception:
+        raise HTTPException(status_code=502, detail="云端海报直链获取失败")
+
     if not raw_url:
         raise HTTPException(status_code=502, detail="云端海报直链获取失败")
     return RedirectResponse(

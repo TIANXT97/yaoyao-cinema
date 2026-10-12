@@ -16,11 +16,13 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import aiofiles
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse, StreamingResponse
 
 from .. import config
 from ..database import Database, get_db
+from ..services.alist_service import fetch_alist_raw_url
 from ..utils.http_client import get_client
 from ..utils.logger import get_logger
 
@@ -158,25 +160,19 @@ async def stream_video(
     # —— 云端媒体：向 Alist 换取真实原画直链后 302 重定向 ——
     if video.get("storage_type") == "cloud" or video.get("cloud_fs_path"):
         cloud_fs_path = video.get("cloud_fs_path")
-        raw_url: str | None = None
-        if cloud_fs_path:
-            headers = {}
-            if config.ALIST_TOKEN:
-                headers["Authorization"] = config.ALIST_TOKEN
-            try:
-                client = await get_client()
-                response = await client.post(
-                    f"{config.ALIST_BASE_URL}/api/fs/get",
-                    json={"path": cloud_fs_path, "password": ""},
-                    headers=headers,
-                )
-                response.raise_for_status()
-                payload = response.json()
-                raw_url = (payload.get("data") or {}).get("raw_url")
-            except Exception as exc:  # noqa: BLE001 - 统一降级为 502
-                logger.error("Alist 直链获取失败 %s: %s", cloud_fs_path, exc)
-        if not raw_url:
+        if not cloud_fs_path:
+            raise HTTPException(status_code=400, detail="缺少云端路径参数")
+
+        try:
+            raw_url = await fetch_alist_raw_url(cloud_fs_path)
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="网盘直链换取超时，请稍后重试")
+        except Exception:
             raise HTTPException(status_code=502, detail="云端直链获取失败")
+
+        if not raw_url:
+            raise HTTPException(status_code=502, detail="云端直链为空或失效")
+
         return RedirectResponse(
             url=raw_url,
             status_code=302,
