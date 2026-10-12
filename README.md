@@ -47,21 +47,21 @@
 你把视频文件放进 NAS 的 **`/vol1/1000/私人影库/`** 文件夹（或者百度网盘、移动硬盘）。回到影院，点页面右上角**"扫描"**按钮，几秒后海报就长出来了。
 
 ### 开发者 / AI Agent 协作
-完整的开发流程请到 [`CLAUDE.md`](CLAUDE.md)（给写代码的 AI agent 看） 和 [`AGENTS.md`](AGENTS.md)（给两只 AI agent 的合作契约看）。
+完整的开发流程请参考 [`CLAUDE.md`](CLAUDE.md)（工位编码 Agent 实操手册）与 [`AGENTS.md`](AGENTS.md)（工位与 NAS 双 Agent 协同契约）。
 
-代码改动链路是单向的：**任何 PC 改代码 → push 到 GitHub → NAS 端 `git pull && docker compose up -d --build` → 新版本上线**。
+开发与上线采用三节点协同流程：
+1. **工位修改**：在工位机器派生分支并开发，通过静态语法检查（`pytest --collect-only` / `npm run type-check`）。
+2. **提交与 PR**：推送分支并向 `main` 发起 Pull Request。
+3. **夭夭合并与部署**：由 NAS 侧的夭夭审核合并 PR，并在老板需要时执行部署上线。
 
 ```bash
-# 完整示例
-git clone https://github.com/TIANXT97/yaoyao-cinema.git
-cd yaoyao-cinema
-# 改 server/api/stream.py ...
-
-git add . && git commit -m "feat(...): ..."
-git push origin main
-
-# NAS 端拉新镜像并重启
-ssh nas 'cd /vol1/1000/vibe-projects/yaoyao-cinema && git pull && docker compose up -d --build yaoyao-cinema'
+# 工位开发标准流程示例
+git checkout -b feat/my-feature origin/main
+# 修改代码并验证...
+git commit -m "feat(scope): 功能简述"
+git push origin feat/my-feature
+gh pr create --title "feat(scope): 功能简述" --body "改动说明..."
+# 交由 NAS 夭夭合并与按需部署
 ```
 
 ---

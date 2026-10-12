@@ -25,23 +25,23 @@
 | **应用源码** | ✅ `server/` (FastAPI / 刮削 / 服务)<br>✅ `frontend/` (Vue3 / Pinia / Tailwind)<br>✅ `android/` (原生 Kotlin 播放器)<br>✅ 静态检查与单元测试维护 | ❌ 不直接修改应用业务代码 |
 | **项目文档** | ✅ 维护 `CLAUDE.md`、`AGENTS.md`、`docs/*` | 🔍 可查阅并在运维异常时推回问题报告文档 |
 | **容器与网络** | ❌ 不操作 NAS 宿主环境 | ✅ 维护 Docker Daemon、macvlan 网络、`mihomo-gateway` 旁路由、`alist` 容器生命周期 |
-| **部署与发版** | 🚀 负责 git push 代码，默认不发版，给出标准交接话术 | ⚙️ 根据老板指令执行 `git pull` 与 `docker compose build yaoyao-cinema` |
+| **部署与发版** | 🚀 负责 git push 特性分支并提 PR，给出标准交接话术 | ⚙️ 负责评审/合并 PR 到 main，并根据老板指令执行 `git pull` 与 `docker compose build yaoyao-cinema` |
 | **数据库** | 📝 编写幂等迁移代码 (`server/database.py`) | 💾 生产数据库日常备份与故障回滚 |
 
 ---
 
 ## 3. 代码提交与部署流转规范
 
-### 3.1 Git 提交与协作
-* **代码权威源**：GitHub 仓库 `TIANXT97/yaoyao-cinema` 的 `main` 分支是唯一权威真值源。
-* **原生 SSH 推送**：工位统一通过 SSH 协议提交与推送，不得在 Remote URL 中内嵌 Token。
+### 3.1 Git 分支与 PR 协作
+* **分支与提交**：工位 Claude 永远基于 `origin/main` 派生特性分支（`feat/*`、`fix/*` 等），不直接推送 `main`。
+* **原生 SSH 推送**：工位统一通过 SSH 协议提交并推送分支。
+* **提 PR 交接**：推送分支后，工位 Claude 调用 `gh pr create` 创建 Pull Request 到 `main`。
+* **合并与部署归属**：合并 PR 到 `main` 以及后续在 NAS 上的构建部署均由 NAS 夭夭执行。
 * **常规红线**：严禁裸 `--force` 或 `reset --hard` 破坏远端 `main` 分支历史。
 
-### 3.2 按需部署模式（交接标准）
-* **取消强行同场构建**：工位 Claude 在完成 push 之后，**不需要且不应当**擅自登录 NAS 进行 build。
-* **标准交接话术**：
-  > ✅ push 完成。是否要 NAS 部署？默认 **否**。
-* **部署触发**：由老板确认后，或交由 NAS 侧夭夭执行拉取构建。
+### 3.2 交接话术标准
+* 工位 Claude 创建 PR 后输出标准提示：
+  > ✅ 特性分支已推送并创建 PR。合并到 main 与 NAS 部署交由夭夭处理。
 
 ### 3.3 紧急安全豁免：凭据与敏感资产清洗
 为防止敏感资产（密钥、个人隐私片名等）残留在 Git 快照中，保留以下历史重写紧急豁免：
