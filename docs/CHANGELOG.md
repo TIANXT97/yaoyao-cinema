@@ -6,6 +6,30 @@
 
 ## [Unreleased]
 
+### 安全加固 (Security Hardening)
+- **刮削图片防 SSRF 加固**：
+  - 引入 `socket.inet_aton` 归一化层，阻断 Linux 环境下通过十进制、十六进制或点分缩写（如 `127.1`、`0x7f.1`、`2130706433`）伪造内网/回环 IP 的绕过攻击。
+  - 在异步线程池中执行 `socket.getaddrinfo` 预解析，拦截指向内网私有地址的域名，且不阻塞主事件循环以保障切片流播放流畅。
+  - 下载链路改用独立客户端并禁用自动重定向（`follow_redirects=False`），实现逐跳 Location 递归 SSRF 审查（最大 5 跳），防止 302 越权穿透至内网或云厂商元数据接口（`169.254.169.254`）。
+  - 增加 15 MB 流式分块下载上限截断与 Pillow 30,000,000 像素解压上限，防御超大文件耗尽内存及像素解压炸弹。
+  - 镜像回退策略剔除与失败主站域名相同的镜像条目，降低无效重试开销。
+
+### 流媒体与云端直链 (Streaming & Alist Integration)
+- **切片流断连优雅退出**：
+  - 视频分块迭代器 `file_iterator` 捕获 `asyncio.CancelledError`、`ConnectionResetError`、`BrokenPipeError` 并静默终止迭代，消除播放器频繁拖拽 Seek 断流引起的服务端 traceback 刷屏。
+- **Alist 云流超时熔断与内存缓存**：
+  - 提取 `server/services/alist_service.py` 专用模块。
+  - 实施 `ALIST_TIMEOUT = 4.0s` 请求硬超时控制与规范化 504 响应，阻断网盘冷启动与异常网络挂死 NAS 线程。
+  - 建立 30s TTL 轻量内存直链缓存，有效过滤播放器短时高频探测、HEAD 请求与多次重试对 Alist API 的突发冲击。
+
+### 元数据与刮削流水线 (Metadata & Scraper)
+- **XML 1.0 非法字符清洗**：
+  - 在 `nfo_source.py` 中引入 `_ILLEGAL_XML_CHARS` 正则，在 NFO XML 生成时自动剥除控制字符（如 `\x00-\x08\x0b\x0c\x0e-\x1f￾￿` 等），避免脏数据导致下游解析器抛出 `ParseError`。
+
+### 移动端与客户端容器 (Mobile & Client)
+- **Capacitor 原生网关自动回退**：
+  - 前端增补 `isCapacitorNative()` 运行时检测，在 Android 原生 WebView / Capacitor 容器环境下自动兜底使用内网服务器网关 `http://192.168.31.235:9900/api`，解决未配置基址时出现的冷启动白屏。
+
 ### 治理与工作流
 - 重构 `CLAUDE.md` 与 `AGENTS.md`，确立工位 PC 与 NAS 夭夭的三节点协作契约。
 - 确立 PR 协作工作流：工位负责特性开发、静态自测并提 PR；PR 合并至 `main` 及 NAS 端部署由夭夭统一执行。
@@ -51,3 +75,4 @@
   - 集成 Capacitor 7.x 原生壳，接入 Media3 / ExoPlayer 1.5.1 硬解播放器内核。
 - **生产容器化**：
   - 交付一体化 `docker-compose.yml`，打通宿主机媒体库挂载与 SQLite WAL 持久化。
+
