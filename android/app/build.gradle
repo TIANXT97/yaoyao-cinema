@@ -17,8 +17,19 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (System.getenv("ANDROID_KEYSTORE_PATH") != null && file(System.getenv("ANDROID_KEYSTORE_PATH")).exists()) {
+                storeFile file(System.getenv("ANDROID_KEYSTORE_PATH"))
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: "yaoyao123456"
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "yaoyao"
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: "yaoyao123456"
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
