@@ -4,6 +4,12 @@
 
 ---
 
+## [v1.0.7] - 2026-10-13
+
+### 修复
+- **前端版本账本彻底对齐**：同步校准 `frontend/package.json` 与 `frontend/package-lock.json` 版本为 1.0.7，根绝 Vite 构建期误读历史账本导致 App 界面版本卡死问题。
+- **版本升格**：Android versionCode 7 / versionName "1.0.7"，全栈前后端版本统一升至 1.0.7。
+
 ## [v1.0.6] - 2026-10-13
 
 ### 体验优化与更新机制加固

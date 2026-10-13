@@ -1,6 +1,6 @@
 {
   "name": "yaoyao-cinema-frontend",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "type": "module",
   "description": "夭夭影社 · 东方纯白极简通透私家影院前端（Vue 3 + Vite + Tailwind v4）",
