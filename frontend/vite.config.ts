@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 
 import tailwindcss from '@tailwindcss/vite'
@@ -19,7 +20,14 @@ export default defineConfig(({ mode }) => {
   const proxyTarget =
     process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:9900'
 
+  const appVersion = JSON.parse(
+    readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf-8'),
+  ).version as string
+
   return {
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+    },
     plugins: [
       vue(),
       tailwindcss(),
