@@ -279,10 +279,10 @@ onBeforeUnmount(() => {
             />
           </div>
           <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-ink-faint">
-            <span>已匹配 {{ stats?.videos.matched ?? 0 }}</span>
-            <span>待刮削 {{ stats?.videos.pending ?? 0 }}</span>
-            <span>失败 {{ stats?.videos.failed ?? 0 }}</span>
-            <span>手动 {{ stats?.videos.manual ?? 0 }}</span>
+            <span>已匹配 {{ stats?.videos?.matched ?? 0 }}</span>
+            <span>待刮削 {{ stats?.videos?.pending ?? 0 }}</span>
+            <span>失败 {{ stats?.videos?.failed ?? 0 }}</span>
+            <span>手动 {{ stats?.videos?.manual ?? 0 }}</span>
           </div>
         </div>
 
@@ -302,9 +302,9 @@ onBeforeUnmount(() => {
             />
           </div>
           <p class="mt-2">
-            已处理 {{ status?.pipeline.processed ?? 0 }} / {{ status?.pipeline.total ?? 0 }}
-            · 成功 {{ status?.pipeline.matched ?? 0 }} · 失败
-            {{ status?.pipeline.failed ?? 0 }}
+            已处理 {{ status?.pipeline?.processed ?? 0 }} / {{ status?.pipeline?.total ?? 0 }}
+            · 成功 {{ status?.pipeline?.matched ?? 0 }} · 失败
+            {{ status?.pipeline?.failed ?? 0 }}
           </p>
         </div>
       </div>

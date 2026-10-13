@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from 'node:url'
 
 import tailwindcss from '@tailwindcss/vite'
@@ -49,6 +50,10 @@ export default defineConfig(({ mode }) => {
     preview: {
       host: true,
       port: 4173,
+    },
+
+    test: {
+      environment: 'jsdom',
     },
 
     build: {
