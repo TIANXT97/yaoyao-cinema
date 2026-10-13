@@ -57,7 +57,7 @@ const showEmpty = computed(() => !props.loading && props.videos.length === 0)
         v-for="video in videos"
         :key="video.id"
         :video="video"
-        :progress="progressMap[video.id] ?? 0"
+        :progress="progressMap[video.id] ?? video.resume_progress ?? 0"
         @click="emit('card-click', video)"
         @favorite="emit('favorite', video)"
         @play="emit('card-click', video)"

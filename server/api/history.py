@@ -33,7 +33,7 @@ async def report_history(
 
 @router.get("/history/recent")
 async def recent_history(
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(history_service.HISTORY_CAP, ge=1, le=history_service.HISTORY_CAP),
     db: Database = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """最近观看（续播列表）。"""

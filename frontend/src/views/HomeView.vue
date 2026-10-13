@@ -12,11 +12,12 @@ import VideoGrid from '@/components/media/VideoGrid.vue'
 import CategoryNav from '@/components/browse/CategoryNav.vue'
 
 import { useNativePlayer } from '@/composables/useNativePlayer'
+import { HISTORY_CAP } from '@/api/history'
 import { useHistoryStore } from '@/stores/history'
 import { useVideoStore } from '@/stores/video'
 import type { RecentRecord } from '@/types/history'
 import { QUICK_FILTERS, type Video } from '@/types/video'
-import { displayTitle, formatClock, formatRelativeTime } from '@/utils/format'
+import { displayTitle } from '@/utils/format'
 
 const router = useRouter()
 const videoStore = useVideoStore()
@@ -77,7 +78,7 @@ async function applyQuick(key: string): Promise<void> {
 onMounted(async () => {
   videoStore.resetFilters()
   activeQuick.value = 'all'
-  await Promise.all([videoStore.fetchVideos(true), historyStore.fetchRecent(12)])
+  await Promise.all([videoStore.fetchVideos(true), historyStore.fetchRecent(HISTORY_CAP)])
 })
 </script>
 
@@ -101,9 +102,9 @@ onMounted(async () => {
     <!-- 继续观看（极简纯白胶囊卡片，免海报直出） -->
     <section
       v-if="continueList.length > 0"
-      class="mx-auto mt-8 max-w-[1600px] px-4 sm:px-6 lg:px-8"
+      class="mx-auto mt-5 max-w-[1600px] px-4 sm:px-6 lg:px-8"
     >
-      <div class="mb-3.5 flex items-baseline justify-between">
+      <div class="mb-2.5 flex items-baseline justify-between">
         <div class="flex items-center gap-2">
           <h2 class="text-base font-medium text-ink">继续观看</h2>
           <span class="rounded-full bg-paper-mute px-2 py-0.5 font-mono text-[11px] text-ink-faint">
@@ -122,7 +123,7 @@ onMounted(async () => {
         <div
           v-for="record in continueList"
           :key="record.video_id"
-          class="group relative flex w-48 shrink-0 cursor-pointer flex-col justify-between rounded-xl border border-line/70 bg-paper p-3 text-left shadow-soft transition-all duration-200 ease-yy hover:-translate-y-0.5 hover:border-accent/40 hover:bg-paper-soft hover:shadow-md sm:w-56"
+          class="group relative flex h-[42px] w-36 shrink-0 cursor-pointer items-center gap-2 overflow-hidden rounded-full border border-line/70 bg-paper px-3 text-left shadow-soft transition-colors duration-200 ease-yy hover:border-accent/40 hover:bg-paper-soft sm:w-40"
           @click="resumePlay(record)"
         >
           <!-- 右上角悬浮删除按钮 -->
@@ -137,35 +138,19 @@ onMounted(async () => {
           </button>
 
           <!-- 头部：标题与播放图标 -->
-          <div class="flex items-start justify-between gap-2 pr-5">
-            <div class="min-w-0 flex-1">
-              <p
-                class="truncate text-[13px] font-medium text-ink transition-colors duration-150 ease-yy group-hover:text-accent"
-                :title="displayTitle(record.title)"
-              >
-                {{ displayTitle(record.title) }}
-              </p>
-              <p
-                v-if="record.bangou"
-                class="mt-0.5 truncate font-mono text-[10px] tracking-bangou text-ink-faint"
-              >
-                {{ record.bangou }}
-              </p>
-            </div>
-            <span
-              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line/60 bg-paper-mute text-ink-soft transition-all duration-200 ease-yy group-hover:border-accent group-hover:bg-accent group-hover:text-white"
-            >
-              <Play :size="11" :stroke-width="2" class="ml-0.5" />
-            </span>
-          </div>
-
-          <!-- 底部：细进度条与观看时间信息 -->
-          <div class="mt-3 w-full">
-            <ProgressBar :value="record.progress" height="h-[2.5px]" track="bg-line" />
-            <div class="mt-1.5 flex items-center justify-between font-mono text-[10px] text-ink-faint">
-              <span>看到 {{ formatClock((record.position ?? 0) / 1000) }}</span>
-              <span>{{ Math.round(record.progress * 100) }}%</span>
-            </div>
+          <span
+            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-paper-mute text-ink-soft transition-colors duration-200 ease-yy group-hover:bg-accent group-hover:text-white"
+          >
+            <Play :size="9" :stroke-width="2" class="ml-px" />
+          </span>
+          <p
+            class="min-w-0 flex-1 truncate pr-3 text-[12px] font-medium text-ink group-hover:text-accent"
+            :title="displayTitle(record.title)"
+          >
+            {{ displayTitle(record.title) }}
+          </p>
+          <div class="pointer-events-none absolute inset-x-0 bottom-0">
+            <ProgressBar :value="record.progress" height="h-[1.5px]" track="bg-line" />
           </div>
         </div>
       </div>

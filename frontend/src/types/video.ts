@@ -42,6 +42,8 @@ export interface Video {
   is_series?: boolean
   /** 聚合展示模式附加：该剧集包含的分集总数（电影为 1）。 */
   episode_count?: number
+  /** 列表附加:该影片最近一次观看的进度(0~1),无记录为 0。 */
+  resume_progress?: number
   file_path: string
   file_name: string
   file_size: number

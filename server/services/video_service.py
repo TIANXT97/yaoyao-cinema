@@ -22,6 +22,11 @@ SORTABLE_COLUMNS: dict[str, str] = {
 }
 
 _RESUME_COMPLETED_THRESHOLD = 0.9
+PRIVATE_CATEGORY = "local"
+_RESUME_PROGRESS_SQL = (
+    "COALESCE((SELECT h.progress FROM watch_history h WHERE h.video_id = v.id "
+    "ORDER BY h.watched_at DESC, h.rowid DESC LIMIT 1), 0) AS resume_progress"
+)
 
 # 二级分类导航顺序（与前端 CategoryNav 胶囊一一对应）
 CATEGORY_ORDER: tuple[str, ...] = ("movie", "c_drama", "k_drama", "w_drama", "local")
@@ -60,7 +65,7 @@ async def list_videos(
     """分页 + 排序 + 筛选查询影片列表，返回 (items, total)。
 
     ``category`` 为二级分类过滤（movie / c_drama / k_drama / w_drama / local）；
-    为空或 ``'all'`` 时不过滤。``group_series=True`` 时聚合逻辑不变：
+    为空或 ``'all'`` 时默认排除私房(``local``)。``group_series=True`` 时聚合逻辑不变：
     同一剧集的分集目录同属一个分类，因此聚合卡片不会跨分类被拆散。
 
     ``group_series=True`` 时进入「聚合展示模式」：
@@ -115,9 +120,13 @@ async def list_videos(
         where.append("v.scrape_status = ?")
         params.append(status)
 
-    if category and str(category).strip() not in ("", "all"):
+    normalized_category = str(category).strip() if category else ""
+    if normalized_category in ("", "all"):
+        where.append("COALESCE(v.category, '') != ?")
+        params.append(PRIVATE_CATEGORY)
+    else:
         where.append("v.category = ?")
-        params.append(str(category).strip())
+        params.append(normalized_category)
 
     where_sql = " WHERE " + " AND ".join(where)
 
@@ -133,7 +142,7 @@ async def list_videos(
 
     offset = (page - 1) * per_page
     rows = await db.fetchall(
-        f"SELECT v.* FROM videos v{where_sql} "
+        f"SELECT v.*, {_RESUME_PROGRESS_SQL} FROM videos v{where_sql} "
         f"ORDER BY {column} {direction}, v.id ASC LIMIT ? OFFSET ?",
         tuple(params) + (per_page, offset),
     )
@@ -150,7 +159,7 @@ async def _list_videos_grouped(
 ) -> tuple[list[dict[str, Any]], int]:
     """按系列聚合的分页查询（内部实现，供 ``list_videos`` 调用）。"""
     base_sql = (
-        "WITH filtered AS (SELECT v.* FROM videos v" + where_sql + "), "
+        "WITH filtered AS (SELECT v.*, " + _RESUME_PROGRESS_SQL + " FROM videos v" + where_sql + "), "
         "ranked AS ("
         "  SELECT f.*,"
         "         CASE WHEN f.series_id IS NULL THEN 0 ELSE 1 END AS is_series,"
@@ -212,7 +221,7 @@ async def get_category_summary(db: Database) -> dict[str, int]:
 
     total_row = await db.fetchone(
         "SELECT COUNT(DISTINCT COALESCE(series_id, id)) AS total FROM videos "
-        "WHERE is_hidden = 0"
+        "WHERE is_hidden = 0 AND COALESCE(category, '') != 'local'"
     )
 
     summary: dict[str, int] = {"all": int((total_row or {}).get("total") or 0)}

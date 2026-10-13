@@ -10,6 +10,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import ProgressBar from '@/components/media/ProgressBar.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { useNativePlayer } from '@/composables/useNativePlayer'
+import { HISTORY_CAP } from '@/api/history'
 import { useHistoryStore } from '@/stores/history'
 import type { RecentRecord } from '@/types/history'
 import { displayTitle, formatClock, formatRelativeTime } from '@/utils/format'
@@ -65,7 +66,7 @@ const grouped = computed(() =>
 )
 
 onMounted(() => {
-  void historyStore.fetchRecent(60)
+  void historyStore.fetchRecent(HISTORY_CAP)
 })
 </script>
 
@@ -81,7 +82,7 @@ onMounted(() => {
           type="button"
           class="flex h-8 w-8 items-center justify-center rounded-full text-ink-faint transition-colors duration-150 ease-yy hover:bg-paper-mute hover:text-ink"
           aria-label="刷新"
-          @click="historyStore.fetchRecent(60)"
+          @click="historyStore.fetchRecent(HISTORY_CAP)"
         >
           <RefreshCw
             :size="16"
