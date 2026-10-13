@@ -1,9 +1,10 @@
 /**
- * 夭夭影社 · 应用更新服务 (对齐 GitHub Releases API)。
+ * 夭夭影社 · 应用更新服务。
  *
- * 手机端直接请求公开仓库 GitHub API 获取最新版本信息与 APK 下载直链。
- * 提供官方 GitHub Releases CDN 与国内镜像加速源（ghfast.top），保障手机快速直连更新。
+ * 优先请求自家服务端 ``/api/system/check-update``(带内存缓存,规避 GitHub 匿名限流),
+ * 服务端不可达时回退到客户端直连 GitHub Releases API。
  */
+import { apiBase } from '@/api/client'
 
 export interface ReleaseAsset {
   name: string
@@ -22,12 +23,23 @@ export interface AppReleaseInfo {
   apkAsset?: ReleaseAsset
 }
 
+interface NormalizedRelease {
+  tagName: string
+  versionName: string
+  title: string
+  body: string
+  publishedAt: string
+  apkAsset?: ReleaseAsset | null
+}
+
 export const GITHUB_REPO = 'TIANXT97/yaoyao-cinema'
-export const CURRENT_APP_VERSION = '1.0.4'
+export const CURRENT_APP_VERSION: string = __APP_VERSION__
+
+const TIMEOUT_MS = 8000
 
 /**
  * 语义化版本号比较。
- * 若 v1 > v2 返回 1；v1 < v2 返回 -1；相等返回 0。
+ * 若 v1 > v2 返回 1;v1 < v2 返回 -1;相等返回 0。
  */
 export function compareVersions(v1: string, v2: string): number {
   const clean1 = v1.replace(/^[^\d]*/, '').trim()
@@ -46,35 +58,38 @@ export function compareVersions(v1: string, v2: string): number {
   return 0
 }
 
-/**
- * 检查 GitHub Releases 最新版本。
- */
-export async function checkForUpdate(currentVersion = CURRENT_APP_VERSION): Promise<AppReleaseInfo> {
-  const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
-
+function withTimeout(): { signal: AbortSignal; clear: () => void } {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 8000)
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  return { signal: controller.signal, clear: () => clearTimeout(timeoutId) }
+}
 
+async function fetchFromServer(): Promise<NormalizedRelease> {
+  const { signal, clear } = withTimeout()
+  try {
+    const res = await fetch(`${apiBase()}/system/check-update`, { signal })
+    if (!res.ok) {
+      throw new Error(`服务端检查更新失败 (HTTP ${res.status})`)
+    }
+    return (await res.json()) as NormalizedRelease
+  } finally {
+    clear()
+  }
+}
+
+async function fetchFromGithub(): Promise<NormalizedRelease> {
+  const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
+  const { signal, clear } = withTimeout()
   try {
     const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/vnd.github.v3+json',
-      },
+      signal,
+      headers: { Accept: 'application/vnd.github.v3+json' },
     })
-
     if (!res.ok) {
       throw new Error(`无法获取更新信息 (HTTP ${res.status})`)
     }
-
     const data = await res.json()
     const tagName = String(data.tag_name || '')
-    const versionName = tagName.replace(/^v/i, '')
-    const title = String(data.name || tagName)
-    const body = String(data.body || '')
-    const publishedAt = String(data.published_at || '')
-
-    // 寻找 .apk 资源文件
     let apkAsset: ReleaseAsset | undefined
     if (Array.isArray(data.assets)) {
       const found = data.assets.find(
@@ -90,19 +105,36 @@ export async function checkForUpdate(currentVersion = CURRENT_APP_VERSION): Prom
         }
       }
     }
-
-    const hasUpdate = compareVersions(versionName, currentVersion) > 0
-
     return {
       tagName,
-      versionName,
-      title,
-      body,
-      publishedAt,
-      hasUpdate,
+      versionName: tagName.replace(/^v/i, ''),
+      title: String(data.name || tagName),
+      body: String(data.body || ''),
+      publishedAt: String(data.published_at || ''),
       apkAsset,
     }
   } finally {
-    clearTimeout(timeoutId)
+    clear()
+  }
+}
+
+/**
+ * 检查最新版本:服务端代理优先,失败回退 GitHub 直连。
+ */
+export async function checkForUpdate(currentVersion = CURRENT_APP_VERSION): Promise<AppReleaseInfo> {
+  let release: NormalizedRelease
+  try {
+    release = await fetchFromServer()
+  } catch {
+    release = await fetchFromGithub()
+  }
+  return {
+    tagName: release.tagName,
+    versionName: release.versionName,
+    title: release.title,
+    body: release.body,
+    publishedAt: release.publishedAt,
+    hasUpdate: compareVersions(release.versionName, currentVersion) > 0,
+    apkAsset: release.apkAsset ?? undefined,
   }
 }
