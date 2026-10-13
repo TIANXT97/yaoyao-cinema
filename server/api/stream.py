@@ -18,7 +18,7 @@ from typing import AsyncIterator
 import aiofiles
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from .. import config
 from ..database import Database, get_db
@@ -81,6 +81,70 @@ def parse_range(range_header: str, file_size: int) -> tuple[int, int]:
     return start, end
 
 
+_PASSTHROUGH_HEADERS = (
+    "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "last-modified",
+    "etag",
+)
+
+
+async def proxy_upstream_iterator(
+    upstream: httpx.Response,
+) -> AsyncIterator[bytes]:
+    """逐块转发上游字节流,客户端断开或上游中断时安全收尾。"""
+    try:
+        async for chunk in upstream.aiter_bytes(chunk_size=config.CHUNK_SIZE):
+            yield chunk
+    except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
+        logger.debug("客户端已断开云端视频流")
+    except httpx.HTTPError as exc:
+        logger.warning("云端上游流中断: %s", exc)
+    finally:
+        await upstream.aclose()
+
+
+async def open_cloud_upstream(raw_url: str, range_header: str | None) -> httpx.Response:
+    """以流式模式向 Alist 直链发起请求,透传 Range,返回未读取正文的响应。"""
+    headers = {"Range": range_header} if range_header else {}
+    request = httpx.Request("GET", raw_url, headers=headers)
+    client = await get_client()
+    try:
+        upstream = await client.send(request, stream=True)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="云端视频源响应超时")
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="云端视频源连接失败")
+
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        raise HTTPException(status_code=502, detail=f"云端视频源返回 {upstream.status_code}")
+    return upstream
+
+
+def build_cloud_stream_response(upstream: httpx.Response, status_code: int) -> StreamingResponse:
+    headers = {
+        key: upstream.headers[key]
+        for key in _PASSTHROUGH_HEADERS
+        if key in upstream.headers
+    }
+    headers.setdefault("Accept-Ranges", "bytes")
+    headers["Cache-Control"] = "no-cache"
+    headers["Content-Disposition"] = "inline"
+    headers["Access-Control-Allow-Origin"] = "*"
+    headers["Access-Control-Allow-Headers"] = "Range"
+    headers["Access-Control-Expose-Headers"] = "Content-Range, Content-Length"
+    media_type = headers.pop("content-type", "application/octet-stream")
+    return StreamingResponse(
+        proxy_upstream_iterator(upstream),
+        status_code=status_code,
+        media_type=media_type,
+        headers=headers,
+    )
+
+
 async def file_iterator(
     path: Path, start: int, end: int
 ) -> AsyncIterator[bytes]:
@@ -115,10 +179,10 @@ async def stream_head(
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
 
-    # 云端视频：HEAD 直接给 302 占位,前端/探测工具仅关心可访问性
+    # 云端视频：HEAD 直接返回 200 占位,前端/探测工具仅关心可访问性
     if video.get("storage_type") == "cloud" or video.get("cloud_fs_path"):
         return Response(
-            status_code=302,
+            status_code=200,
             headers={
                 "Accept-Ranges": "bytes",
                 "Access-Control-Allow-Origin": "*",
@@ -152,12 +216,12 @@ async def stream_video(
     request: Request,
     db: Database = Depends(get_db),
 ):
-    """视频流伺服：云端 302 直链，本地 HTTP 206 分块。"""
+    """视频流伺服：云端反向代理透传，本地 HTTP 206 分块。"""
     video = await db.get_video(video_id)
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
 
-    # —— 云端媒体：向 Alist 换取真实原画直链后 302 重定向 ——
+    # —— 云端媒体：向 Alist 换取真实原画直链后由服务端流式代理 ——
     if video.get("storage_type") == "cloud" or video.get("cloud_fs_path"):
         cloud_fs_path = video.get("cloud_fs_path")
         if not cloud_fs_path:
@@ -173,11 +237,9 @@ async def stream_video(
         if not raw_url:
             raise HTTPException(status_code=502, detail="云端直链为空或失效")
 
-        return RedirectResponse(
-            url=raw_url,
-            status_code=302,
-            headers={"Access-Control-Allow-Origin": "*"},
-        )
+        range_header = request.headers.get("range")
+        upstream = await open_cloud_upstream(raw_url, range_header)
+        return build_cloud_stream_response(upstream, upstream.status_code)
 
     file_path = Path(video["file_path"])
     if not file_path.is_file():
