@@ -7,7 +7,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
  *
  * 对齐 docs/ARCHITECTURE.md 4.1：
  * - 根工程加载 `frontend/dist`（同一套 Vue SPA，双轨同构）
- * - `androidScheme: 'https'` + `allowMixedContent` 允许局域网 NAS 明文直连
+ * - `androidScheme: 'http'` + `allowMixedContent` 允许局域网 NAS 明文直连
  * - 状态栏 / 键盘 / 屏幕方向对齐「东方纯白通透」
  */
 const config: CapacitorConfig = {
@@ -17,7 +17,7 @@ const config: CapacitorConfig = {
 
   server: {
     // 生产模式：加载本地打包文件（离线可用）
-    androidScheme: 'https',
+    androidScheme: 'http',
     // 允许直接访问 NAS 局域网地址（含 API 与 206 流）
     allowNavigation: ['192.168.31.235:9900', '192.168.31.235'],
     cleartext: true,

@@ -14,11 +14,12 @@ export const API_BASE_STORAGE_KEY = 'yaoyao.apiBase'
 /** 局域网 NAS 默认标准网关（移动端/原生容器免配置开箱即用兜底）。 */
 export const DEFAULT_LAN_API_BASE = 'http://192.168.31.235:9900/api'
 
-/** 规范化基址：去空白、去尾部斜杠；空串视为未配置。 */
+/** 规范化基址：去空白、去尾部斜杠,绝对地址缺 /api 时自动补全；空串视为未配置。 */
 function normalizeBase(value: string | null | undefined): string {
-  const raw = value?.trim()
+  const raw = value?.trim().replace(/\/+$/, '')
   if (!raw) return ''
-  return raw.replace(/\/+$/, '')
+  if (!/^https?:\/\//i.test(raw) || /\/api$/i.test(raw)) return raw
+  return `${raw}/api`
 }
 
 /** 环境变量注入的兜底基址（构建期注入一次）。 */

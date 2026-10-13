@@ -1330,7 +1330,7 @@ const config: CapacitorConfig = {
   server: {
     // 生产模式：加载本地打包文件
     // 开发模式：可选 liveReload
-    androidScheme: 'https',
+    androidScheme: 'http',
     // 允许访问 NAS 局域网地址
     allowNavigation: ['192.168.31.235:9900'],
   },
