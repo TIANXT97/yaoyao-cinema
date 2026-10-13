@@ -119,7 +119,7 @@ onMounted(async () => {
         </router-link>
       </div>
 
-      <div class="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+      <div class="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
         <div
           v-for="record in continueList"
           :key="record.video_id"
@@ -158,7 +158,10 @@ onMounted(async () => {
 
 
     <!-- 分类胶囊栏 -->
-    <section class="mx-auto mt-8 max-w-[1600px] px-4 sm:px-6 lg:px-8">
+    <section
+      :class="continueList.length > 0 ? 'mt-3.5 sm:mt-4' : 'mt-8'"
+      class="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8"
+    >
       <CategoryNav v-model="activeCategory" @change="onCategoryChange" />
     </section>
 
