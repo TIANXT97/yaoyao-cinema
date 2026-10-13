@@ -10,6 +10,9 @@ from ..database import Database
 # 进度达到该比例视为「已看完」
 COMPLETED_THRESHOLD = 0.9
 
+# 全库观看历史硬上限
+HISTORY_CAP = 5
+
 
 def _compute_progress(position: int, duration: int) -> float:
     if duration and duration > 0:
@@ -90,10 +93,10 @@ async def report_progress(
 
     # 历史记录每部影片最多只保留最新 5 条，彻底杜绝单表无限膨胀
     await db.execute(
-        "DELETE FROM watch_history WHERE video_id = ? AND id NOT IN ("
-        "  SELECT id FROM watch_history WHERE video_id = ? ORDER BY watched_at DESC, rowid DESC LIMIT 5"
+        "DELETE FROM watch_history WHERE id NOT IN ("
+        "  SELECT id FROM watch_history ORDER BY watched_at DESC, rowid DESC LIMIT ?"
         ")",
-        (video_id, video_id),
+        (HISTORY_CAP,),
     )
     await db.update_video(
         video_id,
@@ -117,10 +120,10 @@ async def get_resume_point(
 
 
 async def get_recent(
-    db: Database, *, limit: int = 20
+    db: Database, *, limit: int = HISTORY_CAP
 ) -> list[dict[str, Any]]:
     """最近观看列表（每部影片取最新一条历史，附带影片摘要）。"""
-    limit = max(1, min(int(limit or 20), 100))
+    limit = max(1, min(int(limit or HISTORY_CAP), HISTORY_CAP))
     # 聚合铁律：电视剧按 series_id 聚合（只保留最后一次观看的那一集与进度）；
     # 电影/独立视频按 video_id 聚合。彻底杜绝同一部剧多集并排刷屏！
     rows = await db.fetchall(
@@ -133,7 +136,7 @@ async def get_recent(
         "           ) AS rn "
         "    FROM watch_history h "
         "    JOIN videos v ON v.id = h.video_id "
-        "    WHERE v.is_hidden = 0"
+        "    WHERE v.is_hidden = 0 AND COALESCE(v.category, '') != 'local'"
         ") "
         "SELECT r.id, r.video_id, r.position, r.duration, r.progress, "
         "       r.completed, r.watched_at, r.device, "

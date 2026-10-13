@@ -22,7 +22,9 @@ export function reportProgress(
 }
 
 /** `GET /history/recent` 最近观看（续播列表，附影片摘要）。 */
-export function getRecentHistory(limit = 20): Promise<RecentRecord[]> {
+export const HISTORY_CAP = 5
+
+export function getRecentHistory(limit = HISTORY_CAP): Promise<RecentRecord[]> {
   return http.get<RecentRecord[]>('/history/recent', { query: { limit } })
 }
 

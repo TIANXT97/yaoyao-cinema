@@ -144,6 +144,7 @@ class VideoOut(VideoBase):
     scrape_time: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    resume_progress: float = 0.0
 
 
 class VideoDetail(VideoOut):

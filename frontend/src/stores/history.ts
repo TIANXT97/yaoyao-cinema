@@ -5,7 +5,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import { deleteHistory, getRecentHistory } from '@/api/history'
+import { deleteHistory, getRecentHistory, HISTORY_CAP } from '@/api/history'
 import type { HistoryGroup, RecentRecord } from '@/types/history'
 import { formatDate } from '@/utils/format'
 
@@ -16,7 +16,7 @@ export const useHistoryStore = defineStore('history', () => {
 
   const empty = computed(() => !loading.value && recentVideos.value.length === 0)
 
-  async function fetchRecent(limit = 20): Promise<void> {
+  async function fetchRecent(limit = HISTORY_CAP): Promise<void> {
     loading.value = true
     error.value = null
     try {
