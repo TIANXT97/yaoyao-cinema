@@ -23,7 +23,7 @@ export interface AppReleaseInfo {
 }
 
 export const GITHUB_REPO = 'TIANXT97/yaoyao-cinema'
-export const CURRENT_APP_VERSION = '1.0.3'
+export const CURRENT_APP_VERSION = '1.0.4'
 
 /**
  * 语义化版本号比较。

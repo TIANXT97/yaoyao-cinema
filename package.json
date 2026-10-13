@@ -1,6 +1,6 @@
 {
   "name": "yaoyao-cinema",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "description": "夭夭影社 · 私家极简全平台原画影院（Vue 3 PWA + FastAPI + Capacitor Android）",
